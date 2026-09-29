@@ -48,6 +48,11 @@ hook_input() {
     '{hook_event_name: $e, session_id: $s} + (if $a == "" then {} else {agent_id: $a, agent_type: "general-purpose"} end)'
 }
 
+# rl_entry <window> <pct> [resets_at] -> {"<window>":{"used_percentage":p,"resets_at":r}}
+rl_entry() {
+  jq -nc --arg w "$1" --argjson p "$2" --argjson r "${3:-$RESET}" '{($w): {used_percentage: $p, resets_at: $r}}'
+}
+
 # sl_input [rate_limits_json] -> status line input JSON
 sl_input() {
   jq -nc --argjson rl "${1:-null}" '{model: {display_name: "Opus"}} + (if $rl == null then {} else {rate_limits: $rl} end)'

@@ -14,7 +14,8 @@ run_relay() {
 }
 
 @test "records windows with updated_at and writes heartbeat" {
-  run_relay "$(sl_input "{\"five_hour\":{\"used_percentage\":42.5,\"resets_at\":$RESET}}")"
+  rl=$(rl_entry five_hour 42.5)
+  run_relay "$(sl_input "$rl")"
   [ "$status" -eq 0 ]
   [ "$(jq -c .five_hour "$CLAUDE_PLUGIN_DATA/state.json")" = "{\"used_percentage\":42.5,\"resets_at\":$RESET,\"updated_at\":$NOW}" ]
   [ "$(cat "$CLAUDE_PLUGIN_DATA/last_render")" = "$NOW" ]
@@ -22,13 +23,15 @@ run_relay() {
 
 @test "keeps windows that are absent from this render" {
   write_state "$(state_entry seven_day 50 "$WEEK_RESET")"
-  run_relay "$(sl_input "{\"five_hour\":{\"used_percentage\":10,\"resets_at\":$RESET}}")"
+  rl=$(rl_entry five_hour 10)
+  run_relay "$(sl_input "$rl")"
   [ "$(jq -r '.seven_day.used_percentage' "$CLAUDE_PLUGIN_DATA/state.json")" = 50 ]
   [ "$(jq -r '.five_hour.used_percentage' "$CLAUDE_PLUGIN_DATA/state.json")" = 10 ]
 }
 
 @test "records spend_limit and ignores unknown windows" {
-  run_relay "$(sl_input "{\"spend_limit\":{\"used_percentage\":104,\"resets_at\":$RESET},\"other\":{\"used_percentage\":1,\"resets_at\":1}}")"
+  rl=$(jq -sc add <<<"$(rl_entry spend_limit 104) $(echo '{"other":{"used_percentage":1,"resets_at":1}}')")
+  run_relay "$(sl_input "$rl")"
   [ "$(jq -r '.spend_limit.used_percentage' "$CLAUDE_PLUGIN_DATA/state.json")" = 104 ]
   [ "$(jq -r 'has("other")' "$CLAUDE_PLUGIN_DATA/state.json")" = false ]
 }
@@ -42,12 +45,14 @@ run_relay() {
 
 @test "replaces a corrupt state file" {
   write_state 'not json'
-  run_relay "$(sl_input "{\"five_hour\":{\"used_percentage\":5,\"resets_at\":$RESET}}")"
+  rl=$(rl_entry five_hour 5)
+  run_relay "$(sl_input "$rl")"
   [ "$(jq -r '.five_hour.used_percentage' "$CLAUDE_PLUGIN_DATA/state.json")" = 5 ]
 }
 
 @test "default line without an inner status line" {
-  run_relay "$(sl_input "{\"five_hour\":{\"used_percentage\":42.5,\"resets_at\":$RESET},\"seven_day\":{\"used_percentage\":9,\"resets_at\":$WEEK_RESET}}")"
+  rl=$(jq -sc add <<<"$(rl_entry five_hour 42.5) $(rl_entry seven_day 9 "$WEEK_RESET")")
+  run_relay "$(sl_input "$rl")"
   [ "$output" = "Opus | 5h: 42% | 7d: 9%" ]
 }
 
