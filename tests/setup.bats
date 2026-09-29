@@ -316,3 +316,23 @@ skip_if_root() { [ "$(id -u)" -eq 0 ] && skip "root ignores directory permission
   [[ $output == *"disableAllHooks is true"* ]]
   [[ $output != *"statusLine is set"* ]]
 }
+
+@test "backups taken within the same second don't overwrite each other" {
+  echo '{"statusLine":"~/sl.sh"}' >"$SETTINGS"
+  run_setup install
+  run_setup uninstall
+  run_setup install
+  [ "$(ls "$USAGE_GUARD_HOME"/backups/settings-"$NOW"-*.json | wc -l | tr -d ' ')" -eq 3 ]
+}
+
+@test "a failed chmod after a successful write is not reported as a failure" {
+  echo '{}' >"$SETTINGS"
+  mkdir -p "$TEST_TMP/fakebin"
+  # chmod that fails only on settings.json.
+  printf '#!/bin/sh\ncase "$2" in */settings.json) exit 1 ;; esac\nexec /bin/chmod "$@"\n' >"$TEST_TMP/fakebin/chmod"
+  chmod +x "$TEST_TMP/fakebin/chmod"
+  PATH="$TEST_TMP/fakebin:$PATH" run_setup install
+  [ "$status" -eq 0 ]
+  [[ $output == *"Installed"* ]]
+  [ "$(jq -r .statusLine.command "$SETTINGS")" = "$RELAY_CMD" ]
+}

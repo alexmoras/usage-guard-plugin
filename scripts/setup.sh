@@ -76,7 +76,8 @@ settings_json() {
 
 backup_settings() {
   [ -f "$settings" ] || return 0
-  mkdir -p "$data/backups" && cp "$settings" "$data/backups/settings-$now.json"
+  # The pid keeps names unique when setup runs twice within a second.
+  mkdir -p "$data/backups" && cp "$settings" "$data/backups/settings-$now-$$.json"
 }
 
 # Write stdin to settings; write through symlinks so dotfile links survive.
@@ -88,8 +89,9 @@ write_settings() {
   else
     mode=$(ug_file_mode "$settings")
     printf '%s\n' "$content" | ug_write_atomic "$settings" || return 1
-    # mktemp files are 0600; keep the user's original mode.
-    [ -z "$mode" ] || chmod "$mode" "$settings"
+    # mktemp files are 0600; keep the user's original mode. The write already
+    # succeeded, so a failed chmod must not be reported as a failed write.
+    [ -z "$mode" ] || chmod "$mode" "$settings" 2>/dev/null || true
   fi
 }
 
