@@ -12,6 +12,7 @@ now=$(ug_now)
 
 record_state() {
   local rl current
+  ug_relay_removed "$data" && return 0
   printf '%s' "$now" >"$data/last_render"
   rl=$(jq -c '.rate_limits // {}
     | with_entries(select((.key == "five_hour" or .key == "seven_day" or .key == "spend_limit")

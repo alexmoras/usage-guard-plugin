@@ -286,3 +286,9 @@ fake_plugin_root() {
   run_guard '{"hook_event_name":"SessionStart","session_id":"s"}'
   [ -z "$output" ]
 }
+
+@test "onboarding stays quiet after the relay was removed on purpose" {
+  touch "$USAGE_GUARD_HOME/relay-removed"
+  run_guard "$(hook_input SessionStart)"
+  [ -z "$output" ]
+}

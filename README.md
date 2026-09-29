@@ -38,7 +38,7 @@ Alerts start after the first API response of a session.
 
 ## Uninstalling
 
-1. Run `/usage-guard:setup uninstall`. This puts your original status line back and clears the recorded usage, so alerts stop straight away.
+1. Run `/usage-guard:setup uninstall`. This puts your original status line back, clears the recorded usage and turns alerts off straight away. Alerts stay off, even if Claude Code redraws the old status line once more, until you run `/usage-guard:setup` again.
 2. Run `/plugin uninstall usage-guard@<marketplace>`.
 3. Optionally, delete the data folder: `rm -rf ~/.claude/usage-guard`.
 
@@ -131,6 +131,7 @@ usage-guard makes no network calls, and nothing leaves your machine. It doesn't 
 - `inner-statusline.json`: your original status line setting, kept so uninstall can restore it.
 - `bin/`: the relay script copy.
 - `config.json`, `onboarding.json` and `last_render`: a snapshot of the plugin settings, notice bookkeeping and the time the relay last ran.
+- `relay-removed`: present after `/usage-guard:setup uninstall`, until the next setup. While it exists nothing is recorded and no alerts are sent.
 
 ## Migrating from hand-made hooks
 

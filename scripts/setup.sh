@@ -114,6 +114,7 @@ cmd_install() {
   blockers=$(managed_blockers)
   if [ -z "$blockers" ] && managed_relay_file >/dev/null; then
     ug_install_relay_files "$ROOT" "$data" || true
+    rm -f "$data/relay-removed"
     echo "usage-guard's relay is set by your organization's managed settings; nothing to do."
     return 0
   fi
@@ -147,6 +148,7 @@ cmd_install() {
     return 1
   fi
   if ug_is_relay_command "$existing" "$data"; then
+    rm -f "$data/relay-removed"
     echo "usage-guard is already installed."
     return 0
   fi
@@ -173,6 +175,7 @@ cmd_install() {
     echo "Couldn't write $settings. Nothing was changed."
     return 1
   fi
+  rm -f "$data/relay-removed"
   echo "Installed. usage-guard now records usage from your status line; your previous status line (if any) still renders."
   echo "Alerts start after the next API response. Check anytime with /usage-guard:status."
 }
@@ -199,6 +202,7 @@ cmd_uninstall() {
   fi
   # Without the relay nothing refreshes these, and the hooks would keep
   # alerting from the last reading until its window reset.
+  touch "$data/relay-removed"
   rm -f "$data/inner-statusline.json" "$data/state.json" "$data/last_render"
   if [ "$saved" = true ]; then
     echo "Removed. Your previous status line setting has been restored."
@@ -222,6 +226,8 @@ cmd_status() {
     echo "  configured by managed settings in $managed_file"
   elif ug_is_relay_command "$(ug_statusline_command "$settings")" "$data"; then
     echo "  configured in $settings"
+  elif ug_relay_removed "$data"; then
+    echo "  removed with /usage-guard:setup uninstall, so alerts are off (run /usage-guard:setup to turn them back on)"
   else
     echo "  not configured in $settings (run /usage-guard:setup)"
   fi

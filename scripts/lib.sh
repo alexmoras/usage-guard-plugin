@@ -197,6 +197,13 @@ ug_install_relay_files() {
   ug_plugin_version "$root" | ug_write_atomic "$bin/VERSION"
 }
 
+# Present after /usage-guard:setup uninstall until the next install. Claude Code
+# can render the old status line once more before reloading settings, so the
+# relay and guard check this rather than trusting that state.json is gone.
+ug_relay_removed() {
+  [ -e "$1/relay-removed" ]
+}
+
 ug_relay_command() {
   printf '"%s/bin/relay.sh"' "$1"
 }

@@ -300,6 +300,46 @@ skip_if_root() { [ "$(id -u)" -eq 0 ] && skip "root ignores directory permission
   [ -z "$output" ]
 }
 
+@test "a relay render after uninstall doesn't bring the alerts back" {
+  echo '{}' >"$SETTINGS"
+  run_setup install
+  run_setup uninstall
+  [ -e "$USAGE_GUARD_HOME/relay-removed" ]
+  # Claude Code may render once more with the old settings before reloading them.
+  rl=$(rl_entry five_hour 14)
+  run "$UG_BASH" "$USAGE_GUARD_HOME/bin/relay.sh" <<<"$(sl_input "$rl")"
+  [ "$status" -eq 0 ]
+  [ -n "$output" ]
+  [ ! -e "$USAGE_GUARD_HOME/state.json" ]
+  [ ! -e "$USAGE_GUARD_HOME/last_render" ]
+  # Even a reading written by hand is ignored until setup is run again.
+  write_state "$(state_entry five_hour 94)"
+  run "$UG_BASH" "$ROOT/scripts/guard.sh" <<<"$(hook_input UserPromptSubmit)"
+  [ -z "$output" ]
+}
+
+@test "install after uninstall records and alerts again" {
+  echo '{}' >"$SETTINGS"
+  run_setup install
+  run_setup uninstall
+  run_setup install
+  [ "$status" -eq 0 ]
+  [ ! -e "$USAGE_GUARD_HOME/relay-removed" ]
+  rl=$(rl_entry five_hour 94)
+  run "$UG_BASH" "$USAGE_GUARD_HOME/bin/relay.sh" <<<"$(sl_input "$rl")"
+  [ "$(jq -r .five_hour.used_percentage "$USAGE_GUARD_HOME/state.json")" = 94 ]
+  run "$UG_BASH" "$ROOT/scripts/guard.sh" <<<"$(hook_input UserPromptSubmit)"
+  [[ $(jq -r .hookSpecificOutput.additionalContext <<<"$output") == *"Wind down now"* ]]
+}
+
+@test "status says the relay was removed with uninstall" {
+  echo '{}' >"$SETTINGS"
+  run_setup install
+  run_setup uninstall
+  run_setup status
+  [[ $output == *"removed with /usage-guard:setup uninstall"* ]]
+}
+
 @test "managed statusLine that runs the relay is success, not a blocker" {
   unset USAGE_GUARD_HOME
   mkdir -p "$USAGE_GUARD_MANAGED_DIR/managed-settings.d"

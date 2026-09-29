@@ -48,6 +48,7 @@ snapshot_config() {
 
 onboarding() {
   local file="$data/onboarding.json" state day
+  ug_relay_removed "$data" && return 0
   state=$(jq -c 'if type == "object" then . else {} end' "$file" 2>/dev/null)
   [ -n "$state" ] || state='{}'
   day=$((now / 86400))
@@ -91,6 +92,7 @@ marker_dir() {
 # creates the marker reports the crossing.
 new_crossings() {
   local dir=$1 th
+  ug_relay_removed "$data" && return 0
   [ -f "$data/state.json" ] || return 0
   th=$(ug_thresholds_json)
   jq -r --argjson th "$th" --argjson now "$now" '
