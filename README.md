@@ -38,7 +38,7 @@ Alerts start after the first API response of a session.
 
 ## Uninstalling
 
-1. Run `/usage-guard:setup uninstall`. This puts your original status line back.
+1. Run `/usage-guard:setup uninstall`. This puts your original status line back and clears the recorded usage, so alerts stop straight away.
 2. Run `/plugin uninstall usage-guard@<marketplace>`.
 3. Optionally, delete the data folder: `rm -rf ~/.claude/usage-guard`.
 

@@ -197,7 +197,9 @@ cmd_uninstall() {
     echo "Couldn't write $settings. Nothing was changed."
     return 1
   fi
-  rm -f "$data/inner-statusline.json"
+  # Without the relay nothing refreshes these, and the hooks would keep
+  # alerting from the last reading until its window reset.
+  rm -f "$data/inner-statusline.json" "$data/state.json" "$data/last_render"
   if [ "$saved" = true ]; then
     echo "Removed. Your previous status line setting has been restored."
   else

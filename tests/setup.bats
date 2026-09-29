@@ -286,6 +286,20 @@ skip_if_root() { [ "$(id -u)" -eq 0 ] && skip "root ignores directory permission
   [ "$output" = "Removed. Your previous status line setting has been restored." ]
 }
 
+@test "uninstall clears recorded usage so the hooks stop alerting from stale readings" {
+  echo '{}' >"$SETTINGS"
+  run_setup install
+  write_state "$(state_entry five_hour 92)"
+  echo "$NOW" >"$USAGE_GUARD_HOME/last_render"
+  run_setup uninstall
+  [ "$status" -eq 0 ]
+  [ ! -e "$USAGE_GUARD_HOME/state.json" ]
+  [ ! -e "$USAGE_GUARD_HOME/last_render" ]
+  run "$UG_BASH" "$ROOT/scripts/guard.sh" <<<"$(hook_input UserPromptSubmit)"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 @test "managed statusLine that runs the relay is success, not a blocker" {
   unset USAGE_GUARD_HOME
   mkdir -p "$USAGE_GUARD_MANAGED_DIR/managed-settings.d"
