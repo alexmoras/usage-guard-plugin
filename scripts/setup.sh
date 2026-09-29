@@ -211,6 +211,104 @@ cmd_uninstall() {
   fi
 }
 
+# /config thresholds come from the SessionStart snapshot (the Bash tool doesn't
+# see plugin options), with `setup thresholds` overrides applied on top.
+effective_thresholds() {
+  local base=""
+  [ -f "$data/config.json" ] && base=$(jq -c '.thresholds // empty' "$data/config.json" 2>/dev/null)
+  [ -n "$base" ] || base=$(ug_config_thresholds_json)
+  ug_apply_threshold_overrides "$base"
+}
+
+# print_thresholds <thresholds_json> <indent>
+print_thresholds() {
+  jq -r 'to_entries[] | [.key, (.value.warn | tostring), (.value.wind_down | tostring),
+    (.value.fallback | tostring), (.value.override // false | tostring)] | @tsv' <<<"$1" |
+    while IFS="$(printf '\t')" read -r w a b f o; do
+      note=""
+      [ "$f" = true ] && note=" (invalid setting, using defaults)"
+      [ "$o" = true ] && note=" (set with /usage-guard:setup thresholds)"
+      echo "$2$(ug_window_label "$w"): $a% / $b%$note"
+    done
+}
+
+thresholds_usage() {
+  echo "usage: /usage-guard:setup thresholds                     show current thresholds"
+  echo "       /usage-guard:setup thresholds <window> <warn> <wind-down>"
+  echo "       /usage-guard:setup thresholds reset [window]"
+  echo "windows: 5h, weekly, spend (or five_hour, seven_day, spend_limit); values are percentages from 1 to 100, warn below wind-down"
+}
+
+window_name() {
+  case $1 in
+    5h | 5-hour | five_hour) echo five_hour ;;
+    weekly | week | 7d | seven_day) echo seven_day ;;
+    spend | spend_limit) echo spend_limit ;;
+    *) return 1 ;;
+  esac
+}
+
+show_thresholds() {
+  echo "Thresholds (warn / wind-down):"
+  print_thresholds "$(effective_thresholds)" "  "
+}
+
+cmd_thresholds() {
+  local file="$data/thresholds.json" w current updated
+  current=$(jq -c 'if type == "object" then . else {} end' "$file" 2>/dev/null)
+  [ -n "$current" ] || current='{}'
+  case ${1:-} in
+    '')
+      show_thresholds
+      ;;
+    reset)
+      if [ $# -gt 2 ]; then
+        thresholds_usage
+        return 1
+      fi
+      if [ -n "${2:-}" ]; then
+        if ! w=$(window_name "$2"); then
+          echo "Unknown window \"$2\"."
+          thresholds_usage
+          return 1
+        fi
+        updated=$(jq -c --arg w "$w" 'del(.[$w])' <<<"$current")
+        if [ "$updated" = '{}' ]; then
+          rm -f "$file"
+        elif ! printf '%s\n' "$updated" | ug_write_atomic "$file"; then
+          echo "Couldn't write $file. Nothing was changed."
+          return 1
+        fi
+        echo "$(ug_window_label "$w") thresholds reset to your /config values or the defaults."
+      else
+        rm -f "$file"
+        echo "All thresholds reset to your /config values or the defaults."
+      fi
+      show_thresholds
+      ;;
+    *)
+      if ! w=$(window_name "$1"); then
+        echo "Unknown window \"$1\"."
+        thresholds_usage
+        return 1
+      fi
+      if [ $# -ne 3 ] || ! ug_is_number "$2" || ! ug_is_number "$3" ||
+        ! awk -v a="$2" -v b="$3" 'BEGIN { exit !(a >= 1 && b <= 100 && a < b) }'; then
+        echo "Thresholds must be two percentages from 1 to 100, with warn below wind-down."
+        thresholds_usage
+        return 1
+      fi
+      updated=$(jq -c --arg w "$w" --argjson a "$2" --argjson b "$3" \
+        '.[$w] = {warn: $a, wind_down: $b}' <<<"$current") || return 1
+      if ! printf '%s\n' "$updated" | ug_write_atomic "$file"; then
+        echo "Couldn't write $file. Nothing was changed."
+        return 1
+      fi
+      echo "$(ug_window_label "$w") thresholds set: warn at $2%, wind down at $3%. This applies from the next prompt or tool call."
+      ;;
+  esac
+}
+
 tier_word() {
   case $1 in wind_down) echo "wind-down" ;; *) echo "$1" ;; esac
 }
@@ -245,11 +343,7 @@ cmd_status() {
     echo "  disableAllHooks is true in $settings, which turns off the status line"
   fi
 
-  if [ -f "$cfg" ]; then
-    th=$(jq -c .thresholds "$cfg")
-  else
-    th=$(ug_thresholds_json)
-  fi
+  th=$(effective_thresholds)
 
   echo
   echo "Usage"
@@ -283,10 +377,7 @@ cmd_status() {
     echo "  defaults (your settings appear here after the next session starts)"
   fi
   echo "  thresholds (warn / wind-down):"
-  jq -r 'to_entries[] | [.key, (.value.warn | tostring), (.value.wind_down | tostring), (.value.fallback | tostring)] | @tsv' <<<"$th" |
-    while IFS="$(printf '\t')" read -r w a b f; do
-      echo "    $(ug_window_label "$w"): $a% / $b%$([ "$f" = true ] && echo " (invalid setting, using defaults)")"
-    done
+  print_thresholds "$th" "    "
 
   if [ -n "$session" ] && [ -d "$data/sent/$(ug_safe_id "$session")" ]; then
     echo
@@ -307,8 +398,12 @@ case ${1:-} in
   install) cmd_install ;;
   uninstall) cmd_uninstall ;;
   status) cmd_status "${2:-}" ;;
+  thresholds)
+    shift
+    cmd_thresholds "$@"
+    ;;
   *)
-    echo "usage: setup.sh install|uninstall|status [session_id]"
+    echo "usage: setup.sh install|uninstall|status [session_id]|thresholds [...]"
     exit 1
     ;;
 esac

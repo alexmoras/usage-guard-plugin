@@ -113,8 +113,9 @@ ug_is_number() {
   [[ $1 =~ ^(0|[1-9][0-9]*)([.][0-9]+)?$ ]]
 }
 
-# Effective thresholds per window. Invalid or inverted pairs fall back to defaults.
-ug_thresholds_json() {
+# Thresholds from /config (plugin options) per window. Invalid or inverted
+# pairs fall back to defaults.
+ug_config_thresholds_json() {
   local json='{}' w dw dd warn wind fb
   for w in $UG_WINDOWS; do
     dw=$(ug_default_threshold "$w" warn)
@@ -130,6 +131,37 @@ ug_thresholds_json() {
       '.[$w] = {warn: $a, wind_down: $b, fallback: $f}' <<<"$json")
   done
   printf '%s' "$json"
+}
+
+# Overlay the valid entries of DATA/thresholds.json (written by
+# `/usage-guard:setup thresholds`) on the thresholds JSON in $1. Overridden
+# windows are marked "override": true. A missing or corrupt file changes nothing.
+ug_apply_threshold_overrides() {
+  local file out
+  file="$(ug_data_dir)/thresholds.json"
+  if [ -f "$file" ]; then
+    out=$(jq -c --argjson base "$1" '
+      . as $o
+      | if type != "object" then $base else
+          reduce ($base | keys[]) as $w ($base;
+            ($o[$w]) as $v
+            | if ($v | type) == "object"
+                and ($v.warn | type) == "number" and ($v.wind_down | type) == "number"
+                and $v.warn > 0 and $v.warn < $v.wind_down and $v.wind_down <= 100
+              then .[$w] = {warn: $v.warn, wind_down: $v.wind_down, fallback: false, override: true}
+              else . end)
+        end' "$file" 2>/dev/null)
+    if [ -n "$out" ]; then
+      printf '%s' "$out"
+      return 0
+    fi
+  fi
+  printf '%s' "$1"
+}
+
+# Effective thresholds: /config values with setup overrides on top.
+ug_thresholds_json() {
+  ug_apply_threshold_overrides "$(ug_config_thresholds_json)"
 }
 
 ug_window_label() {

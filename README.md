@@ -87,6 +87,20 @@ Set these with `/config`, or when you enable the plugin.
 
 If a threshold is not a number, or a warn value isn't below its wind-down value, the defaults for that window are used. `/usage-guard:status` reports when that happens.
 
+### Changing thresholds from the command line
+
+`/usage-guard:setup thresholds` sets thresholds without opening `/config`. Changes apply from the next prompt or tool call; you don't need to restart.
+
+```
+/usage-guard:setup thresholds                  show current thresholds
+/usage-guard:setup thresholds 5h 80 95         warn at 80%, wind down at 95% of the 5-hour limit
+/usage-guard:setup thresholds weekly 90 97     windows: 5h, weekly, spend
+/usage-guard:setup thresholds reset 5h         go back to the /config value or default for one window
+/usage-guard:setup thresholds reset            ... or for all windows
+```
+
+Values are percentages from 1 to 100, and warn must be below wind-down. Thresholds set this way are saved in `~/.claude/usage-guard/thresholds.json` and take priority over `/config`, so `/config` can show a different number from the one in use. `/usage-guard:setup thresholds` and `/usage-guard:status` mark those windows "(set with /usage-guard:setup thresholds)". Lowering a threshold can send an alert straight away; raising one never takes back an alert already sent.
+
 ## Custom messages
 
 Set `messages_dir` to a folder containing any of `warn.md`, `wind-down.md` and `wind-down-subagent.md`. A file there replaces the built-in message of the same name; messages you don't provide keep the defaults.
@@ -131,6 +145,7 @@ usage-guard makes no network calls, and nothing leaves your machine. It doesn't 
 - `inner-statusline.json`: your original status line setting, kept so uninstall can restore it.
 - `bin/`: the relay script copy.
 - `config.json`, `onboarding.json` and `last_render`: a snapshot of the plugin settings, notice bookkeeping and the time the relay last ran.
+- `thresholds.json`: thresholds you set with `/usage-guard:setup thresholds`.
 - `relay-removed`: present after `/usage-guard:setup uninstall`, until the next setup. While it exists nothing is recorded and no alerts are sent.
 
 ## Migrating from hand-made hooks

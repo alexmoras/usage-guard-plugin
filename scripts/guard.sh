@@ -34,7 +34,7 @@ housekeeping() {
 snapshot_config() {
   jq -nc \
     --argjson enabled "$(ug_bool_option enabled true)" \
-    --argjson thresholds "$(ug_thresholds_json)" \
+    --argjson thresholds "$(ug_config_thresholds_json)" \
     --arg handoff_path "$(ug_option handoff_path HANDOFF.md)" \
     --arg resume_max_wait "$(ug_resume_max_wait)" \
     --argjson commit "$(ug_bool_option commit_on_wind_down false)" \

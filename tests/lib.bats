@@ -199,3 +199,19 @@ teardown() { teardown_env; }
   [ -z "$(ug_statusline_command "$TEST_TMP/s3.json")" ]
   [ -z "$(ug_statusline_command "$TEST_TMP/missing.json")" ]
 }
+
+@test "ug_thresholds_json applies valid overrides from thresholds.json" {
+  mkdir -p "$USAGE_GUARD_HOME"
+  echo '{"five_hour":{"warn":80,"wind_down":95},"seven_day":{"warn":99,"wind_down":90},"spend_limit":"x"}' >"$USAGE_GUARD_HOME/thresholds.json"
+  run ug_thresholds_json
+  [ "$(jq -c .five_hour <<<"$output")" = '{"warn":80,"wind_down":95,"fallback":false,"override":true}' ]
+  [ "$(jq -c .seven_day <<<"$output")" = '{"warn":85,"wind_down":95,"fallback":false}' ]
+  [ "$(jq -c .spend_limit <<<"$output")" = '{"warn":75,"wind_down":95,"fallback":false}' ]
+}
+
+@test "ug_config_thresholds_json ignores overrides" {
+  mkdir -p "$USAGE_GUARD_HOME"
+  echo '{"five_hour":{"warn":80,"wind_down":95}}' >"$USAGE_GUARD_HOME/thresholds.json"
+  run ug_config_thresholds_json
+  [ "$(jq -c .five_hour <<<"$output")" = '{"warn":75,"wind_down":90,"fallback":false}' ]
+}
