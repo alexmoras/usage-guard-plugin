@@ -47,3 +47,8 @@ hook_input() {
   jq -nc --arg e "$1" --arg s "${2:-sess1}" --arg a "${3:-}" \
     '{hook_event_name: $e, session_id: $s} + (if $a == "" then {} else {agent_id: $a, agent_type: "general-purpose"} end)'
 }
+
+# sl_input [rate_limits_json] -> status line input JSON
+sl_input() {
+  jq -nc --argjson rl "${1:-null}" '{model: {display_name: "Opus"}} + (if $rl == null then {} else {rate_limits: $rl} end)'
+}
