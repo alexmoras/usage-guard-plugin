@@ -9,10 +9,13 @@ setup() {
 }
 teardown() { teardown_env; }
 
-@test "ug_data_dir uses CLAUDE_PLUGIN_DATA, else ~/.claude/usage-guard" {
+@test "ug_data_dir uses USAGE_GUARD_HOME, else the config dir, and ignores CLAUDE_PLUGIN_DATA" {
   [ "$(ug_data_dir)" = "$TEST_TMP/data" ]
-  unset CLAUDE_PLUGIN_DATA
+  unset USAGE_GUARD_HOME
+  export CLAUDE_PLUGIN_DATA="$TEST_TMP/plugin-data"
   [ "$(ug_data_dir)" = "$HOME/.claude/usage-guard" ]
+  export CLAUDE_CONFIG_DIR="$TEST_TMP/cfg"
+  [ "$(ug_data_dir)" = "$TEST_TMP/cfg/usage-guard" ]
 }
 
 @test "ug_config_dir honours CLAUDE_CONFIG_DIR" {
@@ -154,6 +157,33 @@ teardown() { teardown_env; }
   [ -x "$TEST_TMP/d/bin/relay.sh" ]
   [ "$(cat "$TEST_TMP/d/bin/lib.sh")" = lib ]
   [ "$(cat "$TEST_TMP/d/bin/VERSION")" = "2.0.0" ]
+}
+
+@test "ug_install_relay_files re-copies over existing files and leaves no temp files" {
+  mkdir -p "$TEST_TMP/d/bin"
+  echo old >"$TEST_TMP/d/bin/relay.sh"
+  ug_install_relay_files "$ROOT" "$TEST_TMP/d"
+  cmp "$ROOT/scripts/relay.sh" "$TEST_TMP/d/bin/relay.sh"
+  cmp "$ROOT/scripts/lib.sh" "$TEST_TMP/d/bin/lib.sh"
+  [ -x "$TEST_TMP/d/bin/relay.sh" ]
+  [ -z "$(find "$TEST_TMP/d/bin" -name '.ug.*')" ]
+}
+
+@test "ug_is_relay_command matches only this data dir's relay" {
+  ug_is_relay_command "\"$HOME/.claude/usage-guard/bin/relay.sh\"" "$HOME/.claude/usage-guard"
+  ug_is_relay_command '"$HOME/.claude/usage-guard/bin/relay.sh"' "$HOME/.claude/usage-guard"
+  refute ug_is_relay_command "\"$HOME/.claude/plugins/data/usage-guard-x/bin/relay.sh\"" "$HOME/.claude/usage-guard"
+}
+
+@test "ug_is_foreign_relay_command spots other usage-guard relays only" {
+  d="$HOME/.claude/usage-guard"
+  ug_is_foreign_relay_command "\"$HOME/.claude/plugins/data/usage-guard-mkt/bin/relay.sh\"" "$d"
+  ug_is_foreign_relay_command '"$HOME/.claude/plugins/data/abc/bin/relay.sh"' "$d"
+  ug_is_foreign_relay_command "bash /opt/usage-guard/bin/relay.sh" "$d"
+  refute ug_is_foreign_relay_command "\"$d/bin/relay.sh\"" "$d"
+  refute ug_is_foreign_relay_command "$HOME/tools/bin/relay.sh" "$d"
+  refute ug_is_foreign_relay_command "~/sl.sh" "$d"
+  refute ug_is_foreign_relay_command "" "$d"
 }
 
 @test "ug_relay_command quotes the path" {

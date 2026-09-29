@@ -5,7 +5,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
 
-# Installed as DATA/bin/relay.sh, where CLAUDE_PLUGIN_DATA isn't set.
+# Installed as DATA/bin/relay.sh; the data dir is always its parent directory.
 data=$(dirname "$SCRIPT_DIR")
 input=$(cat)
 now=$(ug_now)

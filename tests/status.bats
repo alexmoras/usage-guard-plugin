@@ -21,7 +21,7 @@ run_status() { run "$UG_BASH" "$ROOT/scripts/setup.sh" status "$@"; }
 
 @test "installed and running with data" {
   "$UG_BASH" "$ROOT/scripts/setup.sh" install >/dev/null
-  echo $((NOW - 120)) >"$CLAUDE_PLUGIN_DATA/last_render"
+  echo $((NOW - 120)) >"$USAGE_GUARD_HOME/last_render"
   write_state "$(jq -sc add <<<"$(state_entry five_hour 91) $(state_entry seven_day 40 "$WEEK_RESET")")"
   run_status
   [[ $output == *"  configured in $HOME/.claude/settings.json"* ]]
@@ -39,7 +39,7 @@ run_status() { run "$UG_BASH" "$ROOT/scripts/setup.sh" status "$@"; }
 
 @test "uses the config snapshot and flags fallbacks" {
   echo '{"enabled":false,"thresholds":{"five_hour":{"warn":60,"wind_down":80,"fallback":false},"seven_day":{"warn":85,"wind_down":95,"fallback":true},"spend_limit":{"warn":75,"wind_down":95,"fallback":false}},"handoff_path":"docs/NEXT.md","resume_max_wait":"6h","commit_on_wind_down":false,"messages_dir":"","updated_at":1}' \
-    >"$CLAUDE_PLUGIN_DATA/config.json"
+    >"$USAGE_GUARD_HOME/config.json"
   run_status
   [[ $output == *"alerts are disabled"* ]]
   [[ $output == *"5-hour: 60% / 80%"* ]]
@@ -61,8 +61,8 @@ run_status() { run "$UG_BASH" "$ROOT/scripts/setup.sh" status "$@"; }
 }
 
 @test "lists this session's alerts, ignoring an unsubstituted id" {
-  mkdir -p "$CLAUDE_PLUGIN_DATA/sent/s1/main" "$CLAUDE_PLUGIN_DATA/sent/s1/agent-2"
-  touch "$CLAUDE_PLUGIN_DATA/sent/s1/main/five_hour-$RESET-warn" "$CLAUDE_PLUGIN_DATA/sent/s1/agent-2/five_hour-$RESET-wind_down"
+  mkdir -p "$USAGE_GUARD_HOME/sent/s1/main" "$USAGE_GUARD_HOME/sent/s1/agent-2"
+  touch "$USAGE_GUARD_HOME/sent/s1/main/five_hour-$RESET-warn" "$USAGE_GUARD_HOME/sent/s1/agent-2/five_hour-$RESET-wind_down"
   run_status s1
   [[ $output == *"main: 5-hour warn"* ]]
   [[ $output == *"agent-2: 5-hour wind-down"* ]]

@@ -79,7 +79,7 @@ project_warnings() {
 }
 
 cmd_install() {
-  local blockers current updated inner_json prev_inner
+  local blockers current existing updated inner_json prev_inner
   if ! ug_have_jq; then
     echo "usage-guard needs jq. Install it (macOS: brew install jq; Debian/Ubuntu: sudo apt install jq), then run setup again."
     return 1
@@ -102,12 +102,19 @@ cmd_install() {
     echo "disableAllHooks is true in $settings, which also turns off the status line. Set it to false, then run setup again."
     return 2
   fi
+  existing=$(ug_statusline_command "$settings")
+  if ug_is_foreign_relay_command "$existing" "$data"; then
+    echo "Your statusLine runs an old usage-guard relay: $existing"
+    echo "Your original status line may be saved in that old folder's inner-statusline.json, or in its backups/ folder."
+    echo "Set statusLine back to your original status line (or remove it), then run setup again. Nothing was changed."
+    return 1
+  fi
   project_warnings
   if ! ug_install_relay_files "$ROOT" "$data"; then
     echo "Couldn't copy the relay into $data/bin."
     return 1
   fi
-  if ug_is_relay_command "$(ug_statusline_command "$settings")" "$data"; then
+  if ug_is_relay_command "$existing" "$data"; then
     echo "usage-guard is already installed."
     return 0
   fi
@@ -139,13 +146,15 @@ cmd_install() {
 }
 
 cmd_uninstall() {
-  local inner updated
+  local inner updated saved=true
   if ! ug_is_relay_command "$(ug_statusline_command "$settings")" "$data"; then
     echo "usage-guard's relay isn't your current status line; nothing to undo."
     return 0
   fi
   inner=$(jq -c . "$data/inner-statusline.json" 2>/dev/null)
-  [ -n "$inner" ] || inner=null
+  if [ -z "$inner" ]; then
+    inner=null saved=false
+  fi
   if ! backup_settings; then
     echo "Couldn't back up $settings into $data/backups. Nothing was changed."
     return 1
@@ -157,7 +166,11 @@ cmd_uninstall() {
     return 1
   fi
   rm -f "$data/inner-statusline.json"
-  echo "Removed. Your previous status line setting has been restored."
+  if [ "$saved" = true ]; then
+    echo "Removed. Your previous status line setting has been restored."
+  else
+    echo "No saved status line was found, so statusLine was removed. Backups of your settings are in $data/backups/."
+  fi
 }
 
 tier_word() {

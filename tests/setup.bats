@@ -5,7 +5,7 @@ load test_helper
 setup() {
   setup_env
   SETTINGS="$HOME/.claude/settings.json"
-  RELAY_CMD="\"$CLAUDE_PLUGIN_DATA/bin/relay.sh\""
+  RELAY_CMD="\"$USAGE_GUARD_HOME/bin/relay.sh\""
   cd "$TEST_TMP"
 }
 teardown() { teardown_env; }
@@ -16,8 +16,8 @@ run_setup() { run "$UG_BASH" "$ROOT/scripts/setup.sh" "$@"; }
   run_setup install
   [ "$status" -eq 0 ]
   [ "$(jq -c .statusLine "$SETTINGS")" = "$(jq -nc --arg c "$RELAY_CMD" '{type: "command", command: $c}')" ]
-  [ "$(cat "$CLAUDE_PLUGIN_DATA/inner-statusline.json")" = "null" ]
-  [ -x "$CLAUDE_PLUGIN_DATA/bin/relay.sh" ]
+  [ "$(cat "$USAGE_GUARD_HOME/inner-statusline.json")" = "null" ]
+  [ -x "$USAGE_GUARD_HOME/bin/relay.sh" ]
   [[ $output == *"Installed"* ]]
 }
 
@@ -33,15 +33,15 @@ run_setup() { run "$UG_BASH" "$ROOT/scripts/setup.sh" "$@"; }
   run_setup install
   [ "$(jq -r .model "$SETTINGS")" = opus ]
   [ "$(jq -c '.statusLine | {padding, refreshInterval, command}' "$SETTINGS")" = "$(jq -nc --arg c "$RELAY_CMD" '{padding: 2, refreshInterval: 5, command: $c}')" ]
-  [ "$(jq -c . "$CLAUDE_PLUGIN_DATA/inner-statusline.json")" = '{"type":"command","command":"~/sl.sh","padding":2,"refreshInterval":5}' ]
-  ls "$CLAUDE_PLUGIN_DATA"/backups/settings-*.json
+  [ "$(jq -c . "$USAGE_GUARD_HOME/inner-statusline.json")" = '{"type":"command","command":"~/sl.sh","padding":2,"refreshInterval":5}' ]
+  ls "$USAGE_GUARD_HOME"/backups/settings-*.json
 }
 
 @test "wraps a string-form statusLine" {
   echo '{"statusLine":"~/sl.sh"}' >"$SETTINGS"
   run_setup install
   [ "$(jq -r .statusLine.command "$SETTINGS")" = "$RELAY_CMD" ]
-  [ "$(jq -c . "$CLAUDE_PLUGIN_DATA/inner-statusline.json")" = '"~/sl.sh"' ]
+  [ "$(jq -c . "$USAGE_GUARD_HOME/inner-statusline.json")" = '"~/sl.sh"' ]
 }
 
 @test "reinstall is a no-op and keeps the saved inner status line" {
@@ -50,7 +50,7 @@ run_setup() { run "$UG_BASH" "$ROOT/scripts/setup.sh" "$@"; }
   run_setup install
   [ "$status" -eq 0 ]
   [[ $output == *"already installed"* ]]
-  [ "$(jq -r .command "$CLAUDE_PLUGIN_DATA/inner-statusline.json")" = "~/sl.sh" ]
+  [ "$(jq -r .command "$USAGE_GUARD_HOME/inner-statusline.json")" = "~/sl.sh" ]
 }
 
 @test "invalid JSON aborts without changes" {
@@ -70,7 +70,7 @@ run_setup() { run "$UG_BASH" "$ROOT/scripts/setup.sh" "$@"; }
 }
 
 @test "data dir with spaces produces a runnable quoted command" {
-  export CLAUDE_PLUGIN_DATA="$TEST_TMP/data dir"
+  export USAGE_GUARD_HOME="$TEST_TMP/data dir"
   run_setup install
   cmd=$(jq -r .statusLine.command "$SETTINGS")
   [ "$cmd" = "\"$TEST_TMP/data dir/bin/relay.sh\"" ]
@@ -126,7 +126,7 @@ run_setup() { run "$UG_BASH" "$ROOT/scripts/setup.sh" "$@"; }
   run_setup uninstall
   [ "$status" -eq 0 ]
   [ "$(jq -c .statusLine "$SETTINGS")" = '{"type":"command","command":"~/sl.sh","padding":2}' ]
-  [ ! -f "$CLAUDE_PLUGIN_DATA/inner-statusline.json" ]
+  [ ! -f "$USAGE_GUARD_HOME/inner-statusline.json" ]
 }
 
 @test "uninstall removes the key when there was none, keeping other keys" {
@@ -176,7 +176,7 @@ skip_if_root() { [ "$(id -u)" -eq 0 ] && skip "root ignores directory permission
   [[ $output == *"Couldn't write $SETTINGS"* ]]
   [[ $output != *"Installed"* ]]
   [ "$(cat "$SETTINGS")" = '{"statusLine":"~/sl.sh"}' ]
-  [ ! -f "$CLAUDE_PLUGIN_DATA/inner-statusline.json" ]
+  [ ! -f "$USAGE_GUARD_HOME/inner-statusline.json" ]
 }
 
 @test "uninstall with an unwritable settings dir fails and keeps the saved status line" {
@@ -188,31 +188,31 @@ skip_if_root() { [ "$(id -u)" -eq 0 ] && skip "root ignores directory permission
   chmod 755 "$HOME/.claude"
   [ "$status" -eq 1 ]
   [[ $output == *"Couldn't write $SETTINGS"* ]]
-  [ "$(jq -c . "$CLAUDE_PLUGIN_DATA/inner-statusline.json")" = '"~/sl.sh"' ]
+  [ "$(jq -c . "$USAGE_GUARD_HOME/inner-statusline.json")" = '"~/sl.sh"' ]
   [ "$(jq -r .statusLine.command "$SETTINGS")" = "$RELAY_CMD" ]
 }
 
 @test "install aborts when the backup can't be written" {
   echo '{"statusLine":"~/sl.sh"}' >"$SETTINGS"
-  mkdir -p "$CLAUDE_PLUGIN_DATA"
-  echo x >"$CLAUDE_PLUGIN_DATA/backups"
+  mkdir -p "$USAGE_GUARD_HOME"
+  echo x >"$USAGE_GUARD_HOME/backups"
   run_setup install
   [ "$status" -eq 1 ]
   [[ $output == *"Couldn't back up"* ]]
   [ "$(cat "$SETTINGS")" = '{"statusLine":"~/sl.sh"}' ]
-  [ ! -f "$CLAUDE_PLUGIN_DATA/inner-statusline.json" ]
+  [ ! -f "$USAGE_GUARD_HOME/inner-statusline.json" ]
 }
 
 @test "install recognises other spellings of the relay command as already installed" {
-  export CLAUDE_PLUGIN_DATA="$HOME/ug-data"
+  export USAGE_GUARD_HOME="$HOME/ug-data"
   for cmd in '"$HOME/ug-data/bin/relay.sh"' "$HOME/ug-data/bin/relay.sh" "bash $HOME/ug-data/bin/relay.sh" "bash \"$HOME/ug-data/bin/relay.sh\"" '~/ug-data/bin/relay.sh'; do
-    rm -rf "$CLAUDE_PLUGIN_DATA"
+    rm -rf "$USAGE_GUARD_HOME"
     jq -n --arg c "$cmd" '{statusLine: {type: "command", command: $c}}' >"$SETTINGS"
     cp "$SETTINGS" "$TEST_TMP/before.json"
     run_setup install
     [ "$status" -eq 0 ]
     [[ $output == *"already installed"* ]]
-    [ ! -f "$CLAUDE_PLUGIN_DATA/inner-statusline.json" ]
+    [ ! -f "$USAGE_GUARD_HOME/inner-statusline.json" ]
     cmp "$SETTINGS" "$TEST_TMP/before.json"
   done
 }
@@ -227,4 +227,61 @@ skip_if_root() { [ "$(id -u)" -eq 0 ] && skip "root ignores directory permission
   run_setup uninstall
   mode=$(stat -c %a "$SETTINGS" 2>/dev/null || stat -f %Lp "$SETTINGS")
   [ "$mode" = 644 ]
+}
+
+@test "default data dir is ~/.claude/usage-guard, not the plugin data folder" {
+  unset USAGE_GUARD_HOME
+  export CLAUDE_PLUGIN_DATA="$HOME/.claude/plugins/data/usage-guard-mkt"
+  run_setup install
+  [ "$status" -eq 0 ]
+  [ "$(jq -r .statusLine.command "$SETTINGS")" = "\"$HOME/.claude/usage-guard/bin/relay.sh\"" ]
+  [ -x "$HOME/.claude/usage-guard/bin/relay.sh" ]
+  [ -f "$HOME/.claude/usage-guard/inner-statusline.json" ]
+  [ ! -e "$CLAUDE_PLUGIN_DATA" ]
+}
+
+@test "install refuses to wrap an old or foreign usage-guard relay" {
+  old="$HOME/.claude/plugins/data/usage-guard-mkt/bin/relay.sh"
+  for cmd in "\"$old\"" "bash $old" '"$HOME/.claude/plugins/data/abc/bin/relay.sh"' "\"$TEST_TMP/other/usage-guard/bin/relay.sh\""; do
+    jq -n --arg c "$cmd" '{statusLine: {type: "command", command: $c, padding: 1}}' >"$SETTINGS"
+    cp "$SETTINGS" "$TEST_TMP/before.json"
+    run_setup install
+    [ "$status" -eq 1 ]
+    [[ $output == *"old usage-guard relay"* ]]
+    [[ $output == *"inner-statusline.json"* ]]
+    [[ $output == *"backups/"* ]]
+    [[ $output == *"Nothing was changed."* ]]
+    cmp "$SETTINGS" "$TEST_TMP/before.json"
+    [ ! -f "$USAGE_GUARD_HOME/inner-statusline.json" ]
+    [ ! -d "$USAGE_GUARD_HOME/backups" ]
+  done
+}
+
+@test "uninstall without a saved status line removes the relay and says so honestly" {
+  echo '{"model":"opus","statusLine":"~/sl.sh"}' >"$SETTINGS"
+  run_setup install
+  rm -f "$USAGE_GUARD_HOME/inner-statusline.json"
+  run_setup uninstall
+  [ "$status" -eq 0 ]
+  [ "$output" = "No saved status line was found, so statusLine was removed. Backups of your settings are in $USAGE_GUARD_HOME/backups/." ]
+  [ "$(jq -c . "$SETTINGS")" = '{"model":"opus"}' ]
+}
+
+@test "uninstall with an unreadable saved status line does not claim a restore" {
+  echo '{"statusLine":"~/sl.sh"}' >"$SETTINGS"
+  run_setup install
+  echo '{corrupt' >"$USAGE_GUARD_HOME/inner-statusline.json"
+  run_setup uninstall
+  [ "$status" -eq 0 ]
+  [[ $output == "No saved status line was found"* ]]
+  [[ $output != *"restored"* ]]
+  [ "$(jq -r 'has("statusLine")' "$SETTINGS")" = false ]
+}
+
+@test "uninstall after installing with no previous status line reports a restore" {
+  echo '{}' >"$SETTINGS"
+  run_setup install
+  run_setup uninstall
+  [ "$status" -eq 0 ]
+  [ "$output" = "Removed. Your previous status line setting has been restored." ]
 }

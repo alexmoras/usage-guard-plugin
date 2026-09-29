@@ -29,7 +29,7 @@ sysmsg() { jq -r '.systemMessage' <<<"$output"; }
   [[ $(ctx) == "Plan usage for the 5-hour window is at 80% (resets in 1h 12m, at "* ]]
   [[ $(ctx) == *"Conserve usage"* ]]
   [ "$(sysmsg)" = "⚠️ usage-guard: 5-hour 80%, resets in 1h 12m" ]
-  [ -f "$CLAUDE_PLUGIN_DATA/sent/s1/main/five_hour-$RESET-warn" ]
+  [ -f "$USAGE_GUARD_HOME/sent/s1/main/five_hour-$RESET-warn" ]
   run_guard "$(hook_input PostToolUse s1)"
   [ -z "$output" ]
 }
@@ -85,8 +85,8 @@ sysmsg() { jq -r '.systemMessage' <<<"$output"; }
   [[ $(ctx) == *"Plan usage for the weekly window is at 96%"* ]]
   [[ $(ctx) == *"Wind down now"* ]]
   [ "$(sysmsg)" = "⚠️ usage-guard: weekly 96%, resets in 3d 2h; 5-hour 80%, resets in 1h 12m" ]
-  [ -f "$CLAUDE_PLUGIN_DATA/sent/sess1/main/five_hour-$RESET-warn" ]
-  [ -f "$CLAUDE_PLUGIN_DATA/sent/sess1/main/seven_day-$WEEK_RESET-wind_down" ]
+  [ -f "$USAGE_GUARD_HOME/sent/sess1/main/five_hour-$RESET-warn" ]
+  [ -f "$USAGE_GUARD_HOME/sent/sess1/main/seven_day-$WEEK_RESET-wind_down" ]
 }
 
 @test "spend over 100 reads as exceeded" {
@@ -101,7 +101,7 @@ sysmsg() { jq -r '.systemMessage' <<<"$output"; }
   run_guard "$(hook_input UserPromptSubmit sess1)"
   run_guard "$(hook_input PostToolUse sess1 agent-7)"
   [[ $(ctx) == "Plan usage is at 92% (5-hour). Stop your task now."* ]]
-  [ -f "$CLAUDE_PLUGIN_DATA/sent/sess1/agent-7/five_hour-$RESET-wind_down" ]
+  [ -f "$USAGE_GUARD_HOME/sent/sess1/agent-7/five_hour-$RESET-wind_down" ]
 }
 
 @test "subagent warn uses the normal warn template" {
@@ -120,7 +120,7 @@ sysmsg() { jq -r '.systemMessage' <<<"$output"; }
 @test "hostile session ids stay inside sent/" {
   write_state "$(state_entry five_hour 80)"
   run_guard "$(hook_input UserPromptSubmit '../../evil' '../x')"
-  [ -f "$CLAUDE_PLUGIN_DATA/sent/______evil/___x/five_hour-$RESET-warn" ]
+  [ -f "$USAGE_GUARD_HOME/sent/______evil/___x/five_hour-$RESET-warn" ]
   [ ! -e "$TEST_TMP/evil" ]
 }
 
@@ -172,29 +172,29 @@ fake_plugin_root() {
 
 @test "SessionStart installs relay files and refreshes them on version change" {
   run_guard "$(hook_input SessionStart)"
-  [ -x "$CLAUDE_PLUGIN_DATA/bin/relay.sh" ]
-  [ -f "$CLAUDE_PLUGIN_DATA/bin/lib.sh" ]
-  [ "$(cat "$CLAUDE_PLUGIN_DATA/bin/VERSION")" = "$(jq -r .version "$ROOT/.claude-plugin/plugin.json")" ]
+  [ -x "$USAGE_GUARD_HOME/bin/relay.sh" ]
+  [ -f "$USAGE_GUARD_HOME/bin/lib.sh" ]
+  [ "$(cat "$USAGE_GUARD_HOME/bin/VERSION")" = "$(jq -r .version "$ROOT/.claude-plugin/plugin.json")" ]
   fake_plugin_root
   run "$UG_BASH" "$TEST_TMP/plugin/scripts/guard.sh" <<<"$(hook_input SessionStart)"
-  [ "$(cat "$CLAUDE_PLUGIN_DATA/bin/VERSION")" = "9.9.9" ]
+  [ "$(cat "$USAGE_GUARD_HOME/bin/VERSION")" = "9.9.9" ]
 }
 
 @test "SessionStart prunes markers older than 8 days" {
-  mkdir -p "$CLAUDE_PLUGIN_DATA/sent/old/main" "$CLAUDE_PLUGIN_DATA/sent/new/main"
-  touch -t 202001010000 "$CLAUDE_PLUGIN_DATA/sent/old/main/five_hour-1-warn"
-  touch "$CLAUDE_PLUGIN_DATA/sent/new/main/five_hour-1-warn"
+  mkdir -p "$USAGE_GUARD_HOME/sent/old/main" "$USAGE_GUARD_HOME/sent/new/main"
+  touch -t 202001010000 "$USAGE_GUARD_HOME/sent/old/main/five_hour-1-warn"
+  touch "$USAGE_GUARD_HOME/sent/new/main/five_hour-1-warn"
   run_guard "$(hook_input SessionStart)"
-  [ ! -e "$CLAUDE_PLUGIN_DATA/sent/old" ]
-  [ -f "$CLAUDE_PLUGIN_DATA/sent/new/main/five_hour-1-warn" ]
+  [ ! -e "$USAGE_GUARD_HOME/sent/old" ]
+  [ -f "$USAGE_GUARD_HOME/sent/new/main/five_hour-1-warn" ]
 }
 
 @test "SessionStart writes a config snapshot" {
   export CLAUDE_PLUGIN_OPTION_FIVE_HOUR_WARN=60 CLAUDE_PLUGIN_OPTION_ENABLED=false
   run_guard "$(hook_input SessionStart)"
-  [ "$(jq -r .thresholds.five_hour.warn "$CLAUDE_PLUGIN_DATA/config.json")" = 60 ]
-  [ "$(jq -r .enabled "$CLAUDE_PLUGIN_DATA/config.json")" = false ]
-  [ "$(jq -r .handoff_path "$CLAUDE_PLUGIN_DATA/config.json")" = HANDOFF.md ]
+  [ "$(jq -r .thresholds.five_hour.warn "$USAGE_GUARD_HOME/config.json")" = 60 ]
+  [ "$(jq -r .enabled "$USAGE_GUARD_HOME/config.json")" = false ]
+  [ "$(jq -r .handoff_path "$USAGE_GUARD_HOME/config.json")" = HANDOFF.md ]
 }
 
 @test "onboarding: setup hint when relay has never run, once per day" {
@@ -208,14 +208,14 @@ fake_plugin_root() {
 }
 
 @test "onboarding: configured but never ran points to status" {
-  jq -n --arg c "\"$CLAUDE_PLUGIN_DATA/bin/relay.sh\"" '{statusLine: {type: "command", command: $c}}' \
+  jq -n --arg c "\"$USAGE_GUARD_HOME/bin/relay.sh\"" '{statusLine: {type: "command", command: $c}}' \
     >"$HOME/.claude/settings.json"
   run_guard "$(hook_input SessionStart)"
   [[ $(sysmsg) == "usage-guard's status line relay is configured but hasn't run."* ]]
 }
 
 @test "onboarding: no-data notice after 3 sessions, shown once" {
-  echo "$NOW" >"$CLAUDE_PLUGIN_DATA/last_render"
+  echo "$NOW" >"$USAGE_GUARD_HOME/last_render"
   run_guard "$(hook_input SessionStart s1)"
   [ -z "$output" ]
   run_guard "$(hook_input SessionStart s2)"
@@ -227,7 +227,7 @@ fake_plugin_root() {
 }
 
 @test "onboarding: silent once data is flowing" {
-  echo "$NOW" >"$CLAUDE_PLUGIN_DATA/last_render"
+  echo "$NOW" >"$USAGE_GUARD_HOME/last_render"
   write_state "$(state_entry five_hour 10)"
   run_guard "$(hook_input SessionStart)"
   [ -z "$output" ]

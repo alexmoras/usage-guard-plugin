@@ -5,12 +5,14 @@
 # shellcheck disable=SC2034
 UG_WINDOWS="five_hour seven_day spend_limit"
 
-ug_data_dir() {
-  printf '%s' "${CLAUDE_PLUGIN_DATA:-$HOME/.claude/usage-guard}"
-}
-
 ug_config_dir() {
   printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+}
+
+# All state lives here, outside the plugin's own data folder, so that removing
+# the plugin never deletes the relay or the user's saved status line.
+ug_data_dir() {
+  printf '%s' "${USAGE_GUARD_HOME:-$(ug_config_dir)/usage-guard}"
 }
 
 ug_now() {
@@ -178,12 +180,21 @@ ug_plugin_version() {
   printf '%s' "${v:-0}"
 }
 
+# Copy relay.sh and lib.sh into DATA/bin. Each file is written to a temp file
+# and renamed into place, so a running relay never reads a half-written file.
 ug_install_relay_files() {
-  local root=$1 data=$2
-  mkdir -p "$data/bin" || return 1
-  cp "$root/scripts/relay.sh" "$root/scripts/lib.sh" "$data/bin/" || return 1
-  chmod +x "$data/bin/relay.sh"
-  ug_plugin_version "$root" >"$data/bin/VERSION"
+  local root=$1 bin="$2/bin" f mode tmp
+  mkdir -p "$bin" || return 1
+  for f in lib.sh relay.sh; do
+    mode=644
+    [ "$f" = relay.sh ] && mode=755
+    tmp=$(mktemp "$bin/.ug.XXXXXX") || return 1
+    if ! cp "$root/scripts/$f" "$tmp" || ! chmod "$mode" "$tmp" || ! mv -f "$tmp" "$bin/$f"; then
+      rm -f "$tmp"
+      return 1
+    fi
+  done
+  ug_plugin_version "$root" | ug_write_atomic "$bin/VERSION"
 }
 
 ug_relay_command() {
@@ -198,10 +209,10 @@ ug_statusline_command() {
       else "" end' "$1" 2>/dev/null
 }
 
-# True when status line command $1 runs the installed relay in data dir $2, however
-# it is spelled: quoted or bare, with a bash/sh prefix, or with a leading $HOME or ~.
-ug_is_relay_command() {
-  local cmd=$1 want="$2/bin/relay.sh"
+# The script path that status line command $1 runs, however it is spelled:
+# quoted or bare, with a bash/sh prefix, or with a leading $HOME or ~.
+ug_command_path() {
+  local cmd=$1
   cmd="${cmd#"${cmd%%[![:space:]]*}"}"
   cmd="${cmd%"${cmd##*[![:space:]]}"}"
   case $cmd in
@@ -220,7 +231,28 @@ ug_is_relay_command() {
     '${HOME}'/*) cmd="$HOME/${cmd#'${HOME}'/}" ;;
     '~'/*) cmd="$HOME/${cmd#'~'/}" ;;
   esac
-  [ "$cmd" = "$want" ]
+  printf '%s' "$cmd"
+}
+
+# True when status line command $1 runs the installed relay in data dir $2.
+ug_is_relay_command() {
+  [ "$(ug_command_path "$1")" = "$2/bin/relay.sh" ]
+}
+
+# True when status line command $1 runs some other usage-guard relay, such as
+# one left in an older version's plugin data folder.
+ug_is_foreign_relay_command() {
+  local path
+  path=$(ug_command_path "$1")
+  [ "$path" != "$2/bin/relay.sh" ] || return 1
+  case $path in
+    */bin/relay.sh) ;;
+    *) return 1 ;;
+  esac
+  case $path in
+    *usage-guard* | */plugins/data/*) return 0 ;;
+  esac
+  return 1
 }
 
 # Octal permission bits of $1 on Linux or macOS/BSD; empty if unknown.

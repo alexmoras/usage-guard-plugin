@@ -10,12 +10,12 @@ setup_env() {
   export TZ=UTC
   export HOME="$TEST_TMP/home"
   mkdir -p "$HOME/.claude"
-  export CLAUDE_PLUGIN_DATA="$TEST_TMP/data"
-  mkdir -p "$CLAUDE_PLUGIN_DATA"
+  export USAGE_GUARD_HOME="$TEST_TMP/data"
+  mkdir -p "$USAGE_GUARD_HOME"
   export CLAUDE_PLUGIN_ROOT="$ROOT"
   export USAGE_GUARD_MANAGED_DIR="$TEST_TMP/managed"
   export USAGE_GUARD_NOW=$NOW
-  unset CLAUDE_CONFIG_DIR USAGE_GUARD_JQ
+  unset CLAUDE_CONFIG_DIR CLAUDE_PLUGIN_DATA USAGE_GUARD_JQ
   local v
   for v in $(compgen -v CLAUDE_PLUGIN_OPTION_); do unset "$v"; done
   UG_BASH="${UG_BASH:-bash}"
@@ -33,7 +33,7 @@ run_script() {
 }
 
 write_state() {
-  printf '%s' "$1" >"$CLAUDE_PLUGIN_DATA/state.json"
+  printf '%s' "$1" >"$USAGE_GUARD_HOME/state.json"
 }
 
 # state_entry <window> <pct> [resets_at] -> {"<window>": {...}}
@@ -56,4 +56,9 @@ rl_entry() {
 # sl_input [rate_limits_json] -> status line input JSON
 sl_input() {
   jq -nc --argjson rl "${1:-null}" '{model: {display_name: "Opus"}} + (if $rl == null then {} else {rate_limits: $rl} end)'
+}
+
+# refute <cmd...>: fail when the command succeeds. (A bare "! cmd" never fails a bats test.)
+refute() {
+  if "$@"; then return 1; fi
 }
