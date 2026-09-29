@@ -38,6 +38,8 @@ Run these inside Claude Code:
 /plugin install usage-guard@usage-guard
 ```
 
+This installs the latest [release](https://github.com/alexmoras/usage-guard-plugin/releases), never unreleased work from `main`.
+
 Then start a new Claude Code session and run:
 
 ```
@@ -57,14 +59,26 @@ Setup is needed because Claude Code only gives usage figures to the status line,
 
 You should see the relay's "last ran" time and your current usage, for example `5-hour: 14%, resets in 4h 10m`. Usage figures appear after the first reply in a session.
 
-### Other ways to install
+### Trying unreleased changes
 
-- **From a local copy:**
-  ```
-  git clone https://github.com/alexmoras/usage-guard-plugin.git
-  ```
-  Then, in Claude Code, run `/plugin marketplace add /path/to/usage-guard-plugin`, followed by the same `/plugin install` and `/usage-guard:setup` steps as above.
-- **Try it without installing:** start Claude Code with `claude --plugin-dir /path/to/usage-guard-plugin`, then run `/usage-guard:setup`. When you're done, run `/usage-guard:setup uninstall`.
+To run the current `main`, or any other branch, without installing it, clone the repository and load it for one session:
+
+```
+git clone https://github.com/alexmoras/usage-guard-plugin.git
+claude --plugin-dir /path/to/usage-guard-plugin
+```
+
+Then run `/usage-guard:setup`. When you're done, run `/usage-guard:setup uninstall`.
+
+### Updating
+
+Claude Code doesn't update third-party plugins automatically unless you turn it on. To get the latest release, run this in your shell, then start a new session:
+
+```
+claude plugin update usage-guard@usage-guard
+```
+
+To update automatically instead, open `/plugin`, go to **Marketplaces**, select **usage-guard** and turn on **Enable auto-update**.
 
 ## Using it
 
@@ -231,6 +245,24 @@ claude --plugin-dir .                                                        # t
 ```
 
 Run bats under bash 4 or later. Under bash 3.2 it can report a test as passing when one of its checks failed. On Linux, `bats tests` with the system bash is enough. CI runs the tests on macOS (with the scripts under bash 3.2) and on Ubuntu.
+
+### Releasing
+
+The marketplace installs the plugin from the `release` branch, not from `main`. Only the release workflow moves that branch, so merging to `main` changes nothing for users until you publish a release.
+
+1. In a pull request, set `version` in `.claude-plugin/plugin.json` to the new version, for example `0.2.0`, and merge it. You can take as long as you like before step 2.
+2. On GitHub, [draft a new release](https://github.com/alexmoras/usage-guard-plugin/releases/new) with the tag `v0.2.0`, targeting `main`, and publish it.
+
+The [release workflow](.github/workflows/release.yml) then:
+1. checks that the tag matches `plugin.json`'s version and is on `main`;
+2. runs the tests on that commit;
+3. fast-forwards `release` to it.
+
+If any check fails, nothing changes for users. A release older than the current one is refused, and pre-releases are ignored.
+
+Existing users get the new version when they run `claude plugin update`, or automatically if they've turned on auto-update.
+
+The `release` branch is protected by a repository ruleset that only a deploy key can bypass. The key is stored as the `RELEASE_DEPLOY_KEY` secret in the `release` environment, which only runs for `v*.*.*` tags, so in practice only the release workflow can move the branch. A test in CI fails any pull request that changes where the marketplace installs from.
 
 ## License
 

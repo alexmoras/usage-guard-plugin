@@ -1,0 +1,73 @@
+name: release
+# Publishing a GitHub Release moves the release branch to the released commit.
+# The marketplace installs from that branch, so nothing merged to main reaches
+# users until it is released. Pre-releases are ignored.
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+      - name: Check the tag, the plugin version and that it's on main
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if ! [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tags must look like v1.2.3, got $TAG."
+            exit 1
+          fi
+          version=$(jq -r .version .claude-plugin/plugin.json)
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::plugin.json says $version but the tag is $TAG. Bump the version in a PR, merge it, then release."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$TAG isn't on main. Release a commit that has been merged to main."
+            exit 1
+          fi
+
+  test:
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    # The release branch is protected by a ruleset that only deploy keys can
+    # bypass. The key's secret lives in the "release" environment, which only
+    # runs for v*.*.* tags.
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+      - name: Move the release branch to this release
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          # Only move forward: a release older than the current one would
+          # silently downgrade everyone.
+          if git rev-parse --verify -q refs/remotes/origin/release >/dev/null &&
+            ! git merge-base --is-ancestor refs/remotes/origin/release HEAD; then
+            echo "::error::$TAG is not newer than the current release branch, so it was not published."
+            exit 1
+          fi
+          git push origin "$sha:refs/heads/release"
+          echo "The release branch now points at $TAG ($sha). New installs and updates get this version." >>"$GITHUB_STEP_SUMMARY"

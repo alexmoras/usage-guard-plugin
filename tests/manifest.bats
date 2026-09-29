@@ -23,3 +23,12 @@ teardown() { teardown_env; }
   [ "$(jq -r '.hooks | keys | sort | join(" ")' "$ROOT/hooks/hooks.json")" = "PostToolUse SessionStart SubagentStart UserPromptSubmit" ]
   [ "$(jq -r '[.hooks[][].hooks[].command] | unique | .[]' "$ROOT/hooks/hooks.json")" = 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/guard.sh"' ]
 }
+
+@test "the marketplace installs from the release branch only" {
+  # Installs must come from the last published release, never from main.
+  # Only the release workflow moves the release branch; see RELEASING in the README.
+  entry=$(jq -c '.plugins[] | select(.name == "usage-guard")' "$ROOT/.claude-plugin/marketplace.json")
+  [ "$(jq -c .source <<<"$entry")" = '{"source":"github","repo":"alexmoras/usage-guard-plugin","ref":"release"}' ]
+  # A version here would override the released plugin.json's version.
+  [ "$(jq -r 'has("version")' <<<"$entry")" = false ]
+}
