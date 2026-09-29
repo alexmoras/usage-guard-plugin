@@ -95,3 +95,105 @@ ug_safe_id() {
     printf '%s' "$1" | tr -c 'A-Za-z0-9_-' '_'
   fi
 }
+
+ug_default_threshold() {
+  case "$1:$2" in
+    five_hour:warn) echo 75 ;;
+    five_hour:wind_down) echo 90 ;;
+    seven_day:warn) echo 85 ;;
+    seven_day:wind_down) echo 95 ;;
+    spend_limit:warn) echo 75 ;;
+    spend_limit:wind_down) echo 95 ;;
+  esac
+}
+
+ug_is_number() {
+  [[ $1 =~ ^(0|[1-9][0-9]*)([.][0-9]+)?$ ]]
+}
+
+# Effective thresholds per window. Invalid or inverted pairs fall back to defaults.
+ug_thresholds_json() {
+  local json='{}' w dw dd warn wind fb
+  for w in $UG_WINDOWS; do
+    dw=$(ug_default_threshold "$w" warn)
+    dd=$(ug_default_threshold "$w" wind_down)
+    warn=$(ug_option "${w}_warn" "$dw")
+    wind=$(ug_option "${w}_wind_down" "$dd")
+    fb=false
+    if ! ug_is_number "$warn" || ! ug_is_number "$wind" ||
+      awk -v a="$warn" -v b="$wind" 'BEGIN { exit !(a >= b) }'; then
+      warn=$dw wind=$dd fb=true
+    fi
+    json=$(jq -c --arg w "$w" --argjson a "$warn" --argjson b "$wind" --argjson f "$fb" \
+      '.[$w] = {warn: $a, wind_down: $b, fallback: $f}' <<<"$json")
+  done
+  printf '%s' "$json"
+}
+
+ug_window_label() {
+  case $1 in
+    five_hour) echo "5-hour" ;;
+    seven_day) echo "weekly" ;;
+    spend_limit) echo "spend limit" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# Whole-number percentage; spend at or over 100 reads "exceeded (N%)".
+ug_fmt_pct() {
+  local p=${2%%.*}
+  if [ "$1" = spend_limit ] && [ "$p" -ge 100 ]; then
+    printf 'exceeded (%s%%)' "$p"
+  else
+    printf '%s%%' "$p"
+  fi
+}
+
+ug_resume_max_wait() {
+  local v
+  v=$(ug_option resume_max_wait 6h)
+  if ug_parse_duration "$v" >/dev/null; then echo "$v"; else echo 6h; fi
+}
+
+# Replace {{key}} with each string value in $2 (a JSON object). jq gsub keeps
+# replacement text literal, so values may contain &, \ or $.
+ug_render_template() {
+  jq -Rrs --argjson v "$2" \
+    'reduce ($v | to_entries[]) as $e (.; gsub("\\{\\{" + $e.key + "\\}\\}"; $e.value)) | sub("\n$"; "")' "$1"
+}
+
+ug_template_path() {
+  local custom
+  custom=$(ug_option messages_dir "")
+  if [ -n "$custom" ] && [ -f "$custom/$2" ]; then
+    printf '%s' "$custom/$2"
+  else
+    printf '%s' "$1/messages/$2"
+  fi
+}
+
+ug_plugin_version() {
+  local v
+  v=$(jq -r '.version // empty' "$1/.claude-plugin/plugin.json" 2>/dev/null)
+  printf '%s' "${v:-0}"
+}
+
+ug_install_relay_files() {
+  local root=$1 data=$2
+  mkdir -p "$data/bin" || return 1
+  cp "$root/scripts/relay.sh" "$root/scripts/lib.sh" "$data/bin/" || return 1
+  chmod +x "$data/bin/relay.sh"
+  ug_plugin_version "$root" >"$data/bin/VERSION"
+}
+
+ug_relay_command() {
+  printf '"%s/bin/relay.sh"' "$1"
+}
+
+ug_statusline_command() {
+  [ -f "$1" ] || return 0
+  jq -r '.statusLine
+    | if type == "object" then (.command // "")
+      elif type == "string" then .
+      else "" end' "$1" 2>/dev/null
+}

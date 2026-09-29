@@ -81,3 +81,91 @@ teardown() { teardown_env; }
   run ug_have_jq
   [ "$status" -ne 0 ]
 }
+
+@test "ug_thresholds_json returns defaults" {
+  run ug_thresholds_json
+  [ "$(jq -c .five_hour <<<"$output")" = '{"warn":75,"wind_down":90,"fallback":false}' ]
+  [ "$(jq -c .seven_day <<<"$output")" = '{"warn":85,"wind_down":95,"fallback":false}' ]
+  [ "$(jq -c .spend_limit <<<"$output")" = '{"warn":75,"wind_down":95,"fallback":false}' ]
+}
+
+@test "ug_thresholds_json uses valid options" {
+  export CLAUDE_PLUGIN_OPTION_FIVE_HOUR_WARN=60 CLAUDE_PLUGIN_OPTION_FIVE_HOUR_WIND_DOWN=80.5
+  run ug_thresholds_json
+  [ "$(jq -c .five_hour <<<"$output")" = '{"warn":60,"wind_down":80.5,"fallback":false}' ]
+}
+
+@test "ug_thresholds_json falls back when values are junk or inverted" {
+  export CLAUDE_PLUGIN_OPTION_FIVE_HOUR_WARN=abc
+  export CLAUDE_PLUGIN_OPTION_SEVEN_DAY_WARN=96 CLAUDE_PLUGIN_OPTION_SEVEN_DAY_WIND_DOWN=90
+  export CLAUDE_PLUGIN_OPTION_SPEND_LIMIT_WARN=075
+  run ug_thresholds_json
+  [ "$(jq -c .five_hour <<<"$output")" = '{"warn":75,"wind_down":90,"fallback":true}' ]
+  [ "$(jq -c .seven_day <<<"$output")" = '{"warn":85,"wind_down":95,"fallback":true}' ]
+  [ "$(jq -c .spend_limit <<<"$output")" = '{"warn":75,"wind_down":95,"fallback":true}' ]
+}
+
+@test "ug_window_label and ug_fmt_pct" {
+  [ "$(ug_window_label five_hour)" = "5-hour" ]
+  [ "$(ug_window_label seven_day)" = "weekly" ]
+  [ "$(ug_window_label spend_limit)" = "spend limit" ]
+  [ "$(ug_fmt_pct five_hour 91.6)" = "91%" ]
+  [ "$(ug_fmt_pct five_hour 104)" = "104%" ]
+  [ "$(ug_fmt_pct spend_limit 104.2)" = "exceeded (104%)" ]
+  [ "$(ug_fmt_pct spend_limit 99)" = "99%" ]
+}
+
+@test "ug_resume_max_wait validates the option" {
+  [ "$(ug_resume_max_wait)" = "6h" ]
+  export CLAUDE_PLUGIN_OPTION_RESUME_MAX_WAIT=90m
+  [ "$(ug_resume_max_wait)" = "90m" ]
+  export CLAUDE_PLUGIN_OPTION_RESUME_MAX_WAIT=soon
+  [ "$(ug_resume_max_wait)" = "6h" ]
+}
+
+@test "ug_render_template replaces placeholders literally" {
+  printf 'At {{pct}}%% of {{window}}; {{pct}} again. {{unknown}}\n' >"$TEST_TMP/t.md"
+  run ug_render_template "$TEST_TMP/t.md" '{"pct":"91","window":"a & b \\1 $x"}'
+  [ "$output" = 'At 91% of a & b \1 $x; 91 again. {{unknown}}' ]
+}
+
+@test "ug_template_path prefers messages_dir when the file exists there" {
+  mkdir -p "$TEST_TMP/custom"
+  echo custom >"$TEST_TMP/custom/warn.md"
+  [ "$(ug_template_path "$ROOT" warn.md)" = "$ROOT/messages/warn.md" ]
+  export CLAUDE_PLUGIN_OPTION_MESSAGES_DIR="$TEST_TMP/custom"
+  [ "$(ug_template_path "$ROOT" warn.md)" = "$TEST_TMP/custom/warn.md" ]
+  [ "$(ug_template_path "$ROOT" wind-down.md)" = "$ROOT/messages/wind-down.md" ]
+}
+
+@test "ug_plugin_version reads plugin.json" {
+  mkdir -p "$TEST_TMP/p/.claude-plugin"
+  echo '{"name":"x","version":"1.2.3"}' >"$TEST_TMP/p/.claude-plugin/plugin.json"
+  [ "$(ug_plugin_version "$TEST_TMP/p")" = "1.2.3" ]
+  [ "$(ug_plugin_version "$TEST_TMP/missing")" = "0" ]
+}
+
+@test "ug_install_relay_files copies relay, lib and VERSION" {
+  mkdir -p "$TEST_TMP/p/.claude-plugin" "$TEST_TMP/p/scripts"
+  echo '{"version":"2.0.0"}' >"$TEST_TMP/p/.claude-plugin/plugin.json"
+  echo 'relay' >"$TEST_TMP/p/scripts/relay.sh"
+  echo 'lib' >"$TEST_TMP/p/scripts/lib.sh"
+  ug_install_relay_files "$TEST_TMP/p" "$TEST_TMP/d"
+  [ -x "$TEST_TMP/d/bin/relay.sh" ]
+  [ "$(cat "$TEST_TMP/d/bin/lib.sh")" = lib ]
+  [ "$(cat "$TEST_TMP/d/bin/VERSION")" = "2.0.0" ]
+}
+
+@test "ug_relay_command quotes the path" {
+  [ "$(ug_relay_command "/a b/data")" = '"/a b/data/bin/relay.sh"' ]
+}
+
+@test "ug_statusline_command reads object and string forms" {
+  echo '{"statusLine":{"type":"command","command":"foo.sh","padding":1}}' >"$TEST_TMP/s1.json"
+  echo '{"statusLine":"bar.sh"}' >"$TEST_TMP/s2.json"
+  echo '{}' >"$TEST_TMP/s3.json"
+  [ "$(ug_statusline_command "$TEST_TMP/s1.json")" = "foo.sh" ]
+  [ "$(ug_statusline_command "$TEST_TMP/s2.json")" = "bar.sh" ]
+  [ -z "$(ug_statusline_command "$TEST_TMP/s3.json")" ]
+  [ -z "$(ug_statusline_command "$TEST_TMP/missing.json")" ]
+}
