@@ -32,7 +32,7 @@ Plugins can't set the status line, so `/usage-guard:setup` adds a small relay in
 
 Setup is safe to repeat. It recognizes its own relay however it is written and won't wrap it in itself. It makes no changes if it can't back up or write your settings, keeps the file's permissions, and writes through a symlinked `settings.json`. If your `settings.json` is invalid JSON, setup stops and changes nothing.
 
-Setup also refuses to install, and tells you why, when managed settings set a `statusLine` or `allowManagedHooksOnly`, or when `disableAllHooks` is true. It warns you if a project's `.claude/settings.json` sets its own `statusLine`, because that overrides yours in that project.
+Setup also refuses to install, and tells you why, when managed settings set a `statusLine` or `allowManagedHooksOnly`, or when `disableAllHooks` is true. It warns you if a project's `.claude/settings.json` or `.claude/settings.local.json` sets its own `statusLine`, because that overrides yours in that project.
 
 Alerts start after the first API response of a session.
 
@@ -95,7 +95,7 @@ Placeholders you can use:
 | `{{resume_max_wait}}` | The `resume_max_wait` setting |
 | `{{commit_step}}` | Empty, unless `commit_on_wind_down` is on |
 
-When a message covers several windows, the per-window placeholders are listed as one line per window above the message body. An exceeded spend limit shows as "spend limit (exceeded)" in `{{window}}`; `{{pct}}` stays numeric.
+When several windows cross a threshold together, the message starts with a "Usage thresholds crossed:" list with one line per window. The placeholders in the message body (`{{window}}`, `{{pct}}`, `{{resets_in}}`, `{{resets_at}}`) describe only the top crossing (wind-down before warn, then the highest percentage); the other windows appear only in that list. An exceeded spend limit shows as "spend limit (exceeded)" in `{{window}}`; `{{pct}}` stays numeric.
 
 ## For administrators
 
@@ -109,13 +109,20 @@ To roll usage-guard out to a team:
    {"statusLine":{"type":"command","command":"\"$HOME/.claude/plugins/data/<id>/bin/relay.sh\""}}
    ```
 
-   `<id>` is the plugin's data folder name under `~/.claude/plugins/data/`; the snippet that setup prints has the real path filled in. The guard keeps that relay file current on every session start, so it updates with the plugin.
+   `<id>` is the plugin's data folder name: look in `~/.claude/plugins/data/` after the plugin has been enabled once. (Setup prints this snippet, with the real path, only when managed settings block an install.) On session start the guard re-copies the relay file if it is missing or the plugin version has changed, so it stays current with plugin updates.
 
 A managed `statusLine` replaces any personal status line, so users lose theirs. The relay does not wrap it. Managed settings delivered by MDM or the claude.ai console can't be read by setup; if the relay never runs, `/usage-guard:status` says so.
 
 ## Privacy
 
-usage-guard makes no network calls and reads no credentials. It stores only usage percentages, reset times and small marker files (which record what each session has been told) under `~/.claude/plugins/data/`. Markers older than 8 days are deleted.
+usage-guard makes no network calls, and nothing leaves your machine. It doesn't read your credentials or call any API. It does keep local files in its data folder, `~/.claude/plugins/data/<id>/`:
+
+- `state.json`: the latest usage percentages and reset times.
+- `sent/`: small marker files recording what each session and subagent has been told. Markers older than 8 days are deleted.
+- `backups/`: a full copy of your `settings.json` from before each setup change. If that file holds env values or tokens, the backups hold them too. Delete them if you don't want them.
+- `inner-statusline.json`: your original status line setting, kept so uninstall can restore it.
+- `bin/`: the relay script copy.
+- `config.json`, `onboarding.json` and `last_render`: a snapshot of the plugin settings, notice bookkeeping and the time the relay last ran.
 
 ## Migrating from hand-made hooks
 
@@ -140,7 +147,7 @@ claude plugin validate . --strict
 claude --plugin-dir .
 ```
 
-Run bats under bash 4 or later: under macOS's bash 3.2 it does not fail a test on a failing `[[ ]]` that isn't the last command. `UG_BASH=/bin/bash` makes the tests run the scripts themselves under bash 3.2, which they must support. On Linux, `bats tests` is enough. CI runs both on macOS and Ubuntu.
+Run bats under bash 4 or later: under macOS's bash 3.2 it does not fail a test on a failing `[[ ]]` that isn't the last command. `UG_BASH=/bin/bash` makes the tests run the scripts themselves under bash 3.2, which they must support. On Linux, `bats tests` with the system bash is enough. CI on macOS runs bats under Homebrew bash with `UG_BASH=/bin/bash`; CI on Ubuntu runs `bats tests` with the system bash.
 
 ## License
 
