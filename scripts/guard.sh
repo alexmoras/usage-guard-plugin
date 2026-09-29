@@ -23,7 +23,7 @@ housekeeping() {
     find "$data/sent" -type f -mtime +8 -delete
     find "$data/sent" -mindepth 1 -type d -empty -delete
   fi
-  if [ ! -f "$data/bin/relay.sh" ] ||
+  if [ ! -f "$data/bin/relay.sh" ] || [ ! -f "$data/bin/lib.sh" ] ||
     [ "$(cat "$data/bin/VERSION" 2>/dev/null)" != "$(ug_plugin_version "$ROOT")" ]; then
     ug_install_relay_files "$ROOT" "$data"
   fi
@@ -60,7 +60,7 @@ onboarding() {
     fi
   elif [ "$(jq -r --argjson d "$day" '.last_setup_notice_day == $d' <<<"$state")" != true ]; then
     state=$(jq -c --argjson d "$day" '.last_setup_notice_day = $d' <<<"$state")
-    if [ "$(ug_statusline_command "$(ug_config_dir)/settings.json")" = "$(ug_relay_command "$data")" ]; then
+    if ug_is_relay_command "$(ug_statusline_command "$(ug_config_dir)/settings.json")" "$data"; then
       echo "usage-guard's status line relay is configured but hasn't run. Managed or project settings may override it; run /usage-guard:status for details."
     else
       echo "usage-guard: run /usage-guard:setup to enable usage alerts."
@@ -86,7 +86,9 @@ marker_dir() {
 }
 
 # Prints "window<TAB>tier<TAB>pct<TAB>resets_at" for each crossing this
-# session/agent hasn't been told about yet.
+# session/agent hasn't been told about yet. Each marker is claimed atomically
+# (noclobber create), so when several hooks run at once only the one that
+# creates the marker reports the crossing.
 new_crossings() {
   local dir=$1 th
   [ -f "$data/state.json" ] || return 0
@@ -103,13 +105,15 @@ new_crossings() {
     while IFS="$TAB" read -r window tier pct resets; do
       [ -e "$dir/$window-$resets-$tier" ] && continue
       [ "$tier" = warn ] && [ -e "$dir/$window-$resets-wind_down" ] && continue
+      mkdir -p "$dir" || continue
+      (set -C && : >"$dir/$window-$resets-$tier") 2>/dev/null || continue
       printf '%s\t%s\t%s\t%s\n' "$window" "$tier" "$pct" "$resets"
     done
 }
 
 # Builds the hook output for new crossings (wind_down first, then highest %).
 emit() {
-  local event=$1 notice=$2 crossings=$3 dir=$4
+  local event=$1 notice=$2 crossings=$3
   if [ -z "$crossings" ]; then
     [ -n "$notice" ] && jq -nc --arg m "$notice" '{systemMessage: $m}'
     return 0
@@ -118,7 +122,6 @@ emit() {
   local sorted count lines="" summary="" window tier pct resets label shown left
   sorted=$(printf '%s\n' "$crossings" | sort -t "$TAB" -k2,2r -k3,3nr)
   count=$(printf '%s\n' "$sorted" | wc -l | tr -d ' ')
-  mkdir -p "$dir"
   while IFS="$TAB" read -r window tier pct resets; do
     label=$(ug_window_label "$window")
     shown=$(ug_fmt_pct "$window" "$pct")
@@ -126,7 +129,6 @@ emit() {
     lines="$lines- $label: $shown (resets in $left, at $(ug_fmt_local_time "$resets"))
 "
     summary="${summary:+$summary; }$label $shown, resets in $left"
-    touch "$dir/$window-$resets-$tier"
   done <<<"$sorted"
 
   local p_window p_tier p_pct p_resets p_label template commit_step="" vars body context sm
@@ -186,7 +188,7 @@ main() {
     return 0
   fi
   dir=$(marker_dir)
-  emit "$event" "$notice" "$(new_crossings "$dir")" "$dir"
+  emit "$event" "$notice" "$(new_crossings "$dir")"
 }
 
 main 2>/dev/null

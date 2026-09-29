@@ -34,6 +34,27 @@ sysmsg() { jq -r '.systemMessage' <<<"$output"; }
   [ -z "$output" ]
 }
 
+@test "concurrent hooks for the same session and agent deliver exactly one alert" {
+  write_state "$(state_entry five_hour 92)"
+  input=$(hook_input PostToolUse sess1)
+  for i in 1 2 3 4 5 6; do
+    "$UG_BASH" "$ROOT/scripts/guard.sh" <<<"$input" >"$TEST_TMP/out-$i" 2>&1 &
+  done
+  wait
+  alerts=0
+  for i in 1 2 3 4 5 6; do
+    [ -s "$TEST_TMP/out-$i" ] && alerts=$((alerts + 1))
+  done
+  [ "$alerts" -eq 1 ]
+  [ -f "$USAGE_GUARD_HOME/sent/sess1/main/five_hour-$RESET-wind_down" ]
+}
+
+@test "checking for alerts without crossings creates no marker folders" {
+  write_state "$(state_entry five_hour 10)"
+  run_guard "$(hook_input PostToolUse sess1)"
+  [ ! -e "$USAGE_GUARD_HOME/sent" ]
+}
+
 @test "another session is told separately" {
   write_state "$(state_entry five_hour 80)"
   run_guard "$(hook_input UserPromptSubmit s1)"
@@ -180,6 +201,13 @@ fake_plugin_root() {
   [ "$(cat "$USAGE_GUARD_HOME/bin/VERSION")" = "9.9.9" ]
 }
 
+@test "SessionStart restores a missing bin/lib.sh" {
+  run_guard "$(hook_input SessionStart)"
+  rm "$USAGE_GUARD_HOME/bin/lib.sh"
+  run_guard "$(hook_input SessionStart s2)"
+  cmp "$ROOT/scripts/lib.sh" "$USAGE_GUARD_HOME/bin/lib.sh"
+}
+
 @test "SessionStart prunes markers older than 8 days" {
   mkdir -p "$USAGE_GUARD_HOME/sent/old/main" "$USAGE_GUARD_HOME/sent/new/main"
   touch -t 202001010000 "$USAGE_GUARD_HOME/sent/old/main/five_hour-1-warn"
@@ -209,6 +237,14 @@ fake_plugin_root() {
 
 @test "onboarding: configured but never ran points to status" {
   jq -n --arg c "\"$USAGE_GUARD_HOME/bin/relay.sh\"" '{statusLine: {type: "command", command: $c}}' \
+    >"$HOME/.claude/settings.json"
+  run_guard "$(hook_input SessionStart)"
+  [[ $(sysmsg) == "usage-guard's status line relay is configured but hasn't run."* ]]
+}
+
+@test "onboarding: recognises other spellings of the relay command" {
+  export USAGE_GUARD_HOME="$HOME/.claude/usage-guard"
+  jq -n '{statusLine: {type: "command", command: "bash ~/.claude/usage-guard/bin/relay.sh"}}' \
     >"$HOME/.claude/settings.json"
   run_guard "$(hook_input SessionStart)"
   [[ $(sysmsg) == "usage-guard's status line relay is configured but hasn't run."* ]]
