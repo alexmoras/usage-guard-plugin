@@ -22,19 +22,44 @@ managed_dir() {
   fi
 }
 
-# One line per managed-settings key that stops a personal status line from running.
-# Settings delivered by MDM or the claude.ai console can't be read here; the
-# relay heartbeat (DATA/last_render) catches those.
-managed_blockers() {
+managed_files() {
   local dir f
   dir=$(managed_dir)
   for f in "$dir/managed-settings.json" "$dir"/managed-settings.d/*.json; do
-    [ -f "$f" ] || continue
-    jq -r --arg f "$f" '
-      (if (.statusLine // null) != null then "statusLine is set in \($f)" else empty end),
-      (if .allowManagedHooksOnly == true then "allowManagedHooksOnly is true in \($f)" else empty end),
-      (if .disableAllHooks == true then "disableAllHooks is true in \($f)" else empty end)' "$f" 2>/dev/null
+    [ -f "$f" ] && printf '%s\n' "$f"
   done
+}
+
+# The first managed settings file whose statusLine runs usage-guard's relay.
+managed_relay_file() {
+  local f
+  while IFS= read -r f; do
+    if ug_is_relay_command "$(ug_statusline_command "$f")" "$data"; then
+      printf '%s' "$f"
+      return 0
+    fi
+  done <<<"$(managed_files)"
+  return 1
+}
+
+# One line per managed-settings key that stops the relay from running. A
+# managed statusLine that already runs the relay is not a blocker, and then
+# neither is allowManagedHooksOnly (it doesn't affect a managed status line).
+# Settings delivered by MDM or the claude.ai console can't be read here; the
+# relay heartbeat (DATA/last_render) catches those.
+managed_blockers() {
+  local f managed_relay=false
+  managed_relay_file >/dev/null && managed_relay=true
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if [ "$managed_relay" = false ] &&
+      [ "$(jq -r '(.statusLine // null) != null' "$f" 2>/dev/null)" = true ]; then
+      echo "statusLine is set in $f"
+    fi
+    jq -r --arg f "$f" --argjson mr "$managed_relay" '
+      (if .allowManagedHooksOnly == true and ($mr | not) then "allowManagedHooksOnly is true in \($f)" else empty end),
+      (if .disableAllHooks == true then "disableAllHooks is true in \($f)" else empty end)' "$f" 2>/dev/null
+  done <<<"$(managed_files)"
 }
 
 admin_snippet() {
@@ -85,6 +110,11 @@ cmd_install() {
     return 1
   fi
   blockers=$(managed_blockers)
+  if [ -z "$blockers" ] && managed_relay_file >/dev/null; then
+    ug_install_relay_files "$ROOT" "$data" || true
+    echo "usage-guard's relay is set by your organization's managed settings; nothing to do."
+    return 0
+  fi
   if [ -n "$blockers" ]; then
     echo "Your organization's managed settings stop a personal status line from running:"
     printf '%s\n' "$blockers" | sed 's/^/  - /'
@@ -178,13 +208,15 @@ tier_word() {
 }
 
 cmd_status() {
-  local session=${1:-} cfg="$data/config.json" th blockers
+  local session=${1:-} cfg="$data/config.json" th blockers managed_file
   case $session in '' | '$'*) session="" ;; esac
 
   printf 'usage-guard %s\n\n' "$(ug_plugin_version "$ROOT")"
 
   echo "Status line relay"
-  if ug_is_relay_command "$(ug_statusline_command "$settings")" "$data"; then
+  if managed_file=$(managed_relay_file); then
+    echo "  configured by managed settings in $managed_file"
+  elif ug_is_relay_command "$(ug_statusline_command "$settings")" "$data"; then
     echo "  configured in $settings"
   else
     echo "  not configured in $settings (run /usage-guard:setup)"

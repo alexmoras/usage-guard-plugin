@@ -285,3 +285,34 @@ skip_if_root() { [ "$(id -u)" -eq 0 ] && skip "root ignores directory permission
   [ "$status" -eq 0 ]
   [ "$output" = "Removed. Your previous status line setting has been restored." ]
 }
+
+@test "managed statusLine that runs the relay is success, not a blocker" {
+  unset USAGE_GUARD_HOME
+  mkdir -p "$USAGE_GUARD_MANAGED_DIR/managed-settings.d"
+  echo '{"statusLine":{"type":"command","command":"corp.sh"}}' >"$USAGE_GUARD_MANAGED_DIR/managed-settings.json"
+  run_setup install
+  [ "$status" -eq 2 ]
+  # Roll out exactly the snippet setup printed for the admin.
+  printf '%s\n' "$output" | sed -n '/^{/,/^}/p' >"$TEST_TMP/snippet.json"
+  [ "$(jq -r .statusLine.command "$TEST_TMP/snippet.json")" = '"$HOME/.claude/usage-guard/bin/relay.sh"' ]
+  rm "$USAGE_GUARD_MANAGED_DIR/managed-settings.json"
+  jq '. + {allowManagedHooksOnly: true}' "$TEST_TMP/snippet.json" >"$USAGE_GUARD_MANAGED_DIR/managed-settings.d/50-usage-guard.json"
+  echo '{"statusLine":"~/sl.sh"}' >"$SETTINGS"
+  run_setup install
+  [ "$status" -eq 0 ]
+  [ "$output" = "usage-guard's relay is set by your organization's managed settings; nothing to do." ]
+  [ "$(jq -c . "$SETTINGS")" = '{"statusLine":"~/sl.sh"}' ]
+  [ ! -f "$HOME/.claude/usage-guard/inner-statusline.json" ]
+  [ ! -d "$HOME/.claude/usage-guard/backups" ]
+  [ -x "$HOME/.claude/usage-guard/bin/relay.sh" ]
+}
+
+@test "managed relay with managed disableAllHooks still blocks" {
+  mkdir -p "$USAGE_GUARD_MANAGED_DIR"
+  jq -n --arg c "\"$USAGE_GUARD_HOME/bin/relay.sh\"" '{statusLine: {type: "command", command: $c}, disableAllHooks: true}' \
+    >"$USAGE_GUARD_MANAGED_DIR/managed-settings.json"
+  run_setup install
+  [ "$status" -eq 2 ]
+  [[ $output == *"disableAllHooks is true"* ]]
+  [[ $output != *"statusLine is set"* ]]
+}

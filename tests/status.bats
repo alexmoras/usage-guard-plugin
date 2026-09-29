@@ -69,3 +69,22 @@ run_status() { run "$UG_BASH" "$ROOT/scripts/setup.sh" status "$@"; }
   run_status '${CLAUDE_SESSION_ID}'
   [[ $output != *"This session"* ]]
 }
+
+@test "managed statusLine running the relay shows as configured by managed settings" {
+  mkdir -p "$USAGE_GUARD_MANAGED_DIR"
+  jq -n --arg c "\"$USAGE_GUARD_HOME/bin/relay.sh\"" '{statusLine: {type: "command", command: $c}, allowManagedHooksOnly: true}' \
+    >"$USAGE_GUARD_MANAGED_DIR/managed-settings.json"
+  run_status
+  [ "$status" -eq 0 ]
+  [[ $output == *"  configured by managed settings in $USAGE_GUARD_MANAGED_DIR/managed-settings.json"* ]]
+  [[ $output != *"not configured"* ]]
+  [[ $output != *"blocked by managed settings"* ]]
+}
+
+@test "a different managed statusLine is still reported as a blocker" {
+  mkdir -p "$USAGE_GUARD_MANAGED_DIR"
+  echo '{"statusLine":"corp.sh"}' >"$USAGE_GUARD_MANAGED_DIR/managed-settings.json"
+  run_status
+  [[ $output == *"not configured in"* ]]
+  [[ $output == *"statusLine is set in $USAGE_GUARD_MANAGED_DIR/managed-settings.json"* ]]
+}
