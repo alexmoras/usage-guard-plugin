@@ -1,52 +1,157 @@
 # usage-guard
 
-usage-guard tells Claude when your plan's usage limits are getting close. At the warn threshold Claude starts conserving usage; at the wind-down threshold it finishes its current step, writes a handoff, stops subagents and, if usage resets soon, schedules itself to continue.
+A Claude Code plugin that warns Claude before you run out of plan usage, so it can wrap up cleanly instead of stopping mid-task.
 
-It is a Claude Code plugin written in bash and `jq`. It records the limits your status line receives and injects short alerts into your sessions through hooks.
+- **At the warn threshold** (75% of your 5-hour limit, by default), Claude starts conserving usage: it finishes the current task before starting anything big and avoids spawning extra subagents.
+- **At the wind-down threshold** (90%), Claude finishes or pauses the current step, stops its subagents, writes a handoff file (`HANDOFF.md`) and, if usage resets soon, schedules itself to pick up where it left off.
 
-## Does it work for me?
+You see a one-line notice when this happens, for example:
 
-| Your setup | Works? | Windows tracked |
+```
+⚠️ usage-guard: 5-hour 91%, resets in 1h 12m
+```
+
+## Which plans does it work with?
+
+usage-guard reads the usage figures that Claude Code gives to your status line. Claude Code only provides them on some plans:
+
+| You use Claude Code with… | Works? | What it watches |
 |---|---|---|
-| claude.ai Pro or Max | Yes | 5-hour, weekly |
-| Claude apps gateway with spend limits (Claude Code v2.1.251 or later) | Yes | spend limit |
-| Either of the above, rolled out by an admin through managed settings | Yes | same |
-| claude.ai Team or Enterprise seat without a gateway | No usage data | none |
-| API key, Bedrock, Vertex, Foundry | No usage data | none |
+| A claude.ai **Pro** or **Max** plan | ✅ Yes | 5-hour and weekly limits |
+| A **Claude apps gateway** with spend limits (Claude Code 2.1.251 or later) | ✅ Yes | Your spend limit |
+| Either of the above, rolled out by your admin | ✅ Yes | The same |
+| A claude.ai **Team** or **Enterprise** seat without a gateway | ❌ No | — |
+| An **API key**, **Amazon Bedrock**, **Google Vertex AI** or **Microsoft Foundry** | ❌ No | — |
 
-Claude Code only gives usage data to the status line on the first two setups. Where there is no data, the plugin stays quiet and `/usage-guard:status` explains why. usage-guard does not try undocumented data sources.
+On unsupported setups the plugin stays quiet, and `/usage-guard:status` tells you there's no usage data.
 
-Requirements: `jq`. macOS and Linux are supported. Windows (Git Bash) is untested. It doesn't wake idle sessions; alerts arrive with your next prompt, tool call or subagent start.
+**You also need:**
+- **macOS or Linux.** Windows with Git Bash may work but is untested.
+- **`jq`.** Check with `jq --version`. To install it, run `brew install jq` on macOS or `sudo apt install jq` on Debian/Ubuntu.
 
 ## Install
 
+Run these inside Claude Code:
+
 ```
-/plugin marketplace add <owner>/usage-guard
+/plugin marketplace add <github-user>/<repo>
 /plugin install usage-guard@usage-guard
+```
+
+Then start a new Claude Code session and run:
+
+```
 /usage-guard:setup
 ```
 
-Plugins can't set the status line, so `/usage-guard:setup` adds a small relay in front of your existing one. The relay records the usage data, then runs your original status line, which keeps rendering as before. If you had no status line, it prints a minimal default.
+Setup is needed because Claude Code only gives usage figures to the status line, and plugins can't change your status line themselves. Setup puts a small relay in front of your status line:
+- The relay records the usage figures, then runs your existing status line, so it looks the same as before.
+- If you had no status line, you get a simple one showing the model and your usage.
+- Your `settings.json` is backed up before anything changes.
 
-`/usage-guard:setup uninstall` restores your previous `statusLine` setting exactly. Every change to `settings.json` is backed up first, to `~/.claude/usage-guard/backups/`.
+**Check it's working.** Send any message, then run:
 
-Setup is safe to repeat. It recognizes its own relay however it is written and won't wrap it in itself. It makes no changes if it can't back up or write your settings, keeps the file's permissions, and writes through a symlinked `settings.json`. If your `settings.json` is invalid JSON, setup stops and changes nothing.
+```
+/usage-guard:status
+```
 
-Setup also refuses to install, and tells you why, when managed settings set a `statusLine` or `allowManagedHooksOnly`, or when `disableAllHooks` is true. If the managed `statusLine` already runs usage-guard's relay, setup says there is nothing to do. If your `statusLine` runs a relay from an older usage-guard install, setup stops without changes and tells you where that install kept your original status line. It warns you if a project's `.claude/settings.json` or `.claude/settings.local.json` sets its own `statusLine`, because that overrides yours in that project.
+You should see the relay's "last ran" time and your current usage, for example `5-hour: 14%, resets in 4h 10m`. Usage figures appear after the first reply in a session.
 
-Alerts start after the first API response of a session.
+### Other ways to install
+
+- **From a local copy:**
+  ```
+  git clone https://github.com/<github-user>/<repo>.git
+  ```
+  Then, in Claude Code, run `/plugin marketplace add /path/to/<repo>`, followed by the same `/plugin install` and `/usage-guard:setup` steps as above.
+- **Try it without installing:** start Claude Code with `claude --plugin-dir /path/to/<repo>`, then run `/usage-guard:setup`. When you're done, run `/usage-guard:setup uninstall`.
+
+## Using it
+
+Once it's set up there's nothing to do: alerts arrive with your next message, tool call or subagent start. Each session and each subagent is told about each threshold once per usage period.
+
+| Command | What it does |
+|---|---|
+| `/usage-guard:status` | Shows your current usage, your thresholds, whether the relay is working and what this session has been told. |
+| `/usage-guard:setup` | Installs the status line relay. It's safe to run again. |
+| `/usage-guard:setup thresholds` | Shows your alert thresholds. |
+| `/usage-guard:setup thresholds 5h 80 95` | Warn at 80% and wind down at 95% of the 5-hour limit. The windows are `5h`, `weekly` and `spend`. |
+| `/usage-guard:setup thresholds reset` | Puts all thresholds back to their defaults. Add a window name (`reset 5h`) to reset just one. |
+| `/usage-guard:setup uninstall` | Restores your original status line and turns alerts off. |
+
+Threshold changes apply from your next message; you don't need to restart.
+
+## Settings
+
+Change thresholds with `/usage-guard:setup thresholds` (above), or change any setting with `/config`:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `enabled` | on | Turn alerts on or off without uninstalling. |
+| `five_hour_warn` / `five_hour_wind_down` | 75 / 90 | Thresholds for the 5-hour limit, in %. |
+| `seven_day_warn` / `seven_day_wind_down` | 85 / 95 | Thresholds for the weekly limit, in %. |
+| `spend_limit_warn` / `spend_limit_wind_down` | 75 / 95 | Thresholds for a gateway spend limit, in %. |
+| `handoff_path` | `HANDOFF.md` | Where Claude writes its handoff, relative to the project. |
+| `resume_max_wait` | `6h` | Claude only schedules itself to continue if usage resets within this time. Use minutes or hours, such as `90m` or `6h`. |
+| `commit_on_wind_down` | off | Also ask Claude to commit work in progress when winding down. |
+| `messages_dir` | unset | A folder with your own versions of the messages (see [Changing what Claude is told](#changing-what-claude-is-told)). |
+
+**How thresholds are chosen:**
+- A threshold set with `/usage-guard:setup thresholds` takes priority over `/config`, so `/config` may show a different number from the one in use. Both `/usage-guard:setup thresholds` and `/usage-guard:status` mark those windows "(set with /usage-guard:setup thresholds)".
+- If a `/config` value is invalid, the defaults for that window are used. Invalid means not a number, or a warn value that isn't below its wind-down value.
+- Lowering a threshold can send an alert straight away. Raising one never takes back an alert that's already been sent.
 
 ## Uninstalling
 
-1. Run `/usage-guard:setup uninstall`. This puts your original status line back, clears the recorded usage and turns alerts off straight away. Alerts stay off, even if Claude Code redraws the old status line once more, until you run `/usage-guard:setup` again.
-2. Run `/plugin uninstall usage-guard@<marketplace>`.
-3. Optionally, delete the data folder: `rm -rf ~/.claude/usage-guard`.
+1. Run `/usage-guard:setup uninstall`. This restores your original status line and turns alerts off.
+2. Run `/plugin uninstall usage-guard@usage-guard`.
+3. If you like, delete the data folder: `rm -rf ~/.claude/usage-guard`.
 
-If you remove the plugin without step 1, nothing breaks: the relay lives in `~/.claude/usage-guard/bin/`, not in the plugin, so it keeps rendering your original status line. Alerts simply stop. To put your status line back afterwards, reinstall the plugin and run step 1, or copy the saved setting from `~/.claude/usage-guard/inner-statusline.json` into `statusLine` yourself.
+**If you skip step 1**, nothing breaks. The relay keeps showing your original status line and alerts stop. To restore the original setting later, reinstall and run `/usage-guard:setup uninstall`. Or copy the saved setting from `~/.claude/usage-guard/inner-statusline.json` into `statusLine` in `~/.claude/settings.json`.
 
-## What Claude is told
+## Troubleshooting
 
-Each of the three messages below is a file in `messages/`. Each session, and each subagent, hears about each threshold once per reset period. A wind-down message replaces a warn message for the same window. When several windows cross a threshold together, they are combined into one message with a line per window.
+Start with `/usage-guard:status`.
+
+- **"no usage data received yet"**: either your plan doesn't provide usage figures (see [Which plans does it work with?](#which-plans-does-it-work-with)), or there hasn't been a reply in this session yet.
+- **"has never run"**: something is overriding your status line. It could be:
+  - your organization's managed settings;
+  - a project's `.claude/settings.json` or `.claude/settings.local.json`;
+  - `disableAllHooks`.
+
+  Setup warns about the ones it can see.
+- **"removed with /usage-guard:setup uninstall"**: alerts are off. Run `/usage-guard:setup` to turn them back on.
+- **Setup says an "old usage-guard relay" was found**: your status line points at a relay from an earlier install, for example under `~/.claude/plugins/data/`. Your original status line may be in that folder's `inner-statusline.json` or `backups/`. Put it back in `statusLine` (or remove the key), then run `/usage-guard:setup` again.
+- **Setup is blocked by managed settings**: your organization controls the status line. Setup prints the snippet your administrator needs (see [For administrators](#for-administrators)).
+- **Usage is high but there are no alerts**: check that `enabled` is on, and look at your thresholds in `/usage-guard:status`.
+- **You see duplicate alerts**: remove any usage hooks you built yourself from `~/.claude/settings.json`.
+
+Two limits to be aware of:
+- Alerts can't wake an idle session. They arrive with your next message, tool call or subagent start.
+- After Claude compacts a conversation, an alert sent earlier isn't repeated.
+
+## Changing what Claude is told
+
+The messages are in `messages/`. To use your own, set `messages_dir` to a folder containing any of `warn.md`, `wind-down.md` and `wind-down-subagent.md`. Any file you don't provide keeps the built-in version.
+
+These placeholders are filled in:
+
+| Placeholder | Becomes |
+|---|---|
+| `{{window}}` | `5-hour`, `weekly` or `spend limit`, or `spend limit (exceeded)` when you're over it |
+| `{{pct}}` | The percentage used |
+| `{{resets_in}}` | The time until reset, such as `1h 12m` |
+| `{{resets_at}}` | The reset time, in local time |
+| `{{handoff_path}}` | The `handoff_path` setting |
+| `{{resume_max_wait}}` | The `resume_max_wait` setting |
+| `{{commit_step}}` | Empty, unless `commit_on_wind_down` is on |
+
+If several limits cross a threshold at once, Claude gets one message:
+- It starts with a "Usage thresholds crossed:" line for each limit.
+- The placeholders in the message body describe the most urgent one: wind-down before warn, then the highest percentage.
+
+<details>
+<summary>The built-in messages</summary>
 
 **Warn** (`messages/warn.md`)
 
@@ -65,59 +170,7 @@ Each of the three messages below is a file in `messages/`. Each session, and eac
 
 > Plan usage is at {{pct}}% ({{window}}). Stop your task now. Your final report must say you stopped because of usage limits and list what's done, what's outstanding and any partial results. Your parent session has also been told, so don't try to schedule anything.
 
-You also see a short notice, such as `⚠️ usage-guard: 5-hour 92% ...`, when an alert is sent. Subagents started after a threshold was crossed get the current message as they start.
-
-## Configuration
-
-Set these with `/config`, or when you enable the plugin.
-
-| Setting | Default | Meaning |
-|---|---|---|
-| `enabled` | on | Turn alerts on or off without uninstalling. |
-| `five_hour_warn` | 75 | Warn at this % of the 5-hour limit. |
-| `five_hour_wind_down` | 90 | Wind down at this % of the 5-hour limit. |
-| `seven_day_warn` | 85 | Warn at this % of the weekly limit. |
-| `seven_day_wind_down` | 95 | Wind down at this % of the weekly limit. |
-| `spend_limit_warn` | 75 | Warn at this % of your gateway spend limit. |
-| `spend_limit_wind_down` | 95 | Wind down at this % of your gateway spend limit. |
-| `handoff_path` | `HANDOFF.md` | Where Claude writes its handoff, relative to the project root. |
-| `resume_max_wait` | `6h` | Claude only schedules a resume if usage resets within this time. Use `Nm` or `Nh`, such as `90m` or `6h`. |
-| `commit_on_wind_down` | off | Also ask Claude to commit work in progress when winding down. |
-| `messages_dir` | unset | Folder with your own message files (see below). |
-
-If a threshold is not a number, or a warn value isn't below its wind-down value, the defaults for that window are used. `/usage-guard:status` reports when that happens.
-
-### Changing thresholds from the command line
-
-`/usage-guard:setup thresholds` sets thresholds without opening `/config`. Changes apply from the next prompt or tool call; you don't need to restart.
-
-```
-/usage-guard:setup thresholds                  show current thresholds
-/usage-guard:setup thresholds 5h 80 95         warn at 80%, wind down at 95% of the 5-hour limit
-/usage-guard:setup thresholds weekly 90 97     windows: 5h, weekly, spend
-/usage-guard:setup thresholds reset 5h         go back to the /config value or default for one window
-/usage-guard:setup thresholds reset            ... or for all windows
-```
-
-Values are percentages from 1 to 100, and warn must be below wind-down. Thresholds set this way are saved in `~/.claude/usage-guard/thresholds.json` and take priority over `/config`, so `/config` can show a different number from the one in use. `/usage-guard:setup thresholds` and `/usage-guard:status` mark those windows "(set with /usage-guard:setup thresholds)". Lowering a threshold can send an alert straight away; raising one never takes back an alert already sent.
-
-## Custom messages
-
-Set `messages_dir` to a folder containing any of `warn.md`, `wind-down.md` and `wind-down-subagent.md`. A file there replaces the built-in message of the same name; messages you don't provide keep the defaults.
-
-Placeholders you can use:
-
-| Placeholder | Becomes |
-|---|---|
-| `{{window}}` | `5-hour`, `weekly` or `spend limit` |
-| `{{pct}}` | Percentage used |
-| `{{resets_in}}` | Time until reset, such as `1h 12m` |
-| `{{resets_at}}` | Reset time in local time |
-| `{{handoff_path}}` | The `handoff_path` setting |
-| `{{resume_max_wait}}` | The `resume_max_wait` setting |
-| `{{commit_step}}` | Empty, unless `commit_on_wind_down` is on |
-
-When several windows cross a threshold together, the message starts with a "Usage thresholds crossed:" list with one line per window. The placeholders in the message body (`{{window}}`, `{{pct}}`, `{{resets_in}}`, `{{resets_at}}`) describe only the top crossing (wind-down before warn, then the highest percentage); the other windows appear only in that list. An exceeded spend limit shows as "spend limit (exceeded)" in `{{window}}`; `{{pct}}` stays numeric.
+</details>
 
 ## For administrators
 
@@ -125,54 +178,59 @@ To roll usage-guard out to a team:
 
 1. If you use `strictKnownMarketplaces`, add the usage-guard marketplace to the allowlist.
 2. Force-enable `usage-guard@<marketplace>` in managed `enabledPlugins`. Its hooks then run even under `allowManagedHooksOnly`. That exemption matches the full `plugin@marketplace` ID, so the same plugin installed from a different marketplace stays blocked.
-3. Set the managed `statusLine` to the snippet that `/usage-guard:setup` prints when managed settings block it:
+3. Set the managed `statusLine` to:
 
    ```json
    {"statusLine":{"type":"command","command":"\"$HOME/.claude/usage-guard/bin/relay.sh\""}}
    ```
 
-   The path is the same for every user (it moves only if `CLAUDE_CONFIG_DIR` is set). On session start the guard copies the relay there if it is missing or the plugin version has changed, so it stays current with plugin updates. Once this is in place, `/usage-guard:setup` reports that there is nothing to do and `/usage-guard:status` shows the relay as configured by managed settings.
+   - **The path** is the same for every user. It only changes if a user sets `CLAUDE_CONFIG_DIR`.
+   - **The relay file** is copied into place by the plugin at session start, and replaced whenever the plugin is updated.
+   - **Afterwards**, `/usage-guard:setup` tells users there's nothing to do, and `/usage-guard:status` shows the relay as set by managed settings.
 
-A managed `statusLine` replaces any personal status line, so users lose theirs. The relay does not wrap it. Managed settings delivered by MDM or the claude.ai console can't be read by setup; if the relay never runs, `/usage-guard:status` says so.
+A managed `statusLine` replaces users' personal status lines, and the relay doesn't bring them back.
 
-## Privacy
+Setup can't read managed settings delivered by MDM or the claude.ai admin console. If those override the status line, `/usage-guard:status` reports that the relay has never run.
 
-usage-guard makes no network calls, and nothing leaves your machine. It doesn't read your credentials or call any API. It does keep local files in its data folder, `~/.claude/usage-guard/` (or `usage-guard/` inside `CLAUDE_CONFIG_DIR` if you set it). The folder is kept when the plugin is uninstalled; delete it yourself if you no longer need it:
+## What setup changes, and privacy
 
-- `state.json`: the latest usage percentages and reset times.
-- `sent/`: small marker files recording what each session and subagent has been told. Markers older than 8 days are deleted.
-- `backups/`: a full copy of your `settings.json` from before each setup change. If that file holds env values or tokens, the backups hold them too. Delete them if you don't want them.
-- `inner-statusline.json`: your original status line setting, kept so uninstall can restore it.
-- `bin/`: the relay script copy.
-- `config.json`, `onboarding.json` and `last_render`: a snapshot of the plugin settings, notice bookkeeping and the time the relay last ran.
-- `thresholds.json`: thresholds you set with `/usage-guard:setup thresholds`.
-- `relay-removed`: present after `/usage-guard:setup uninstall`, until the next setup. While it exists nothing is recorded and no alerts are sent.
+`/usage-guard:setup` changes only the `statusLine` setting in `~/.claude/settings.json`. It is careful with that file:
 
-## Migrating from hand-made hooks
+- **Backs it up first**, to `~/.claude/usage-guard/backups/`, and changes nothing if the backup or the write fails.
+- **Keeps the file intact:** the file's permissions and its other settings stay as they are. If `settings.json` is a symlink, setup writes through it.
+- **Leaves broken files alone:** if `settings.json` isn't valid JSON, setup stops and changes nothing.
+- **Is safe to run again:** it recognizes its own relay and never wraps it inside itself.
 
-If you built your own usage hooks, remove them from `~/.claude/settings.json` and delete their old state files. Otherwise Claude gets duplicate messages.
+**Privacy:** usage-guard makes no network calls, and nothing leaves your machine. It doesn't read your credentials. It keeps these local files in `~/.claude/usage-guard/` (or in `usage-guard/` inside `CLAUDE_CONFIG_DIR`, if you set it):
 
-## Troubleshooting
+| File | Contents |
+|---|---|
+| `state.json` | The latest usage percentages and reset times. |
+| `sent/` | Markers recording what each session has been told. They're deleted after 8 days. |
+| `backups/` | Full copies of your `settings.json` from before each change. If that file contains tokens or env values, so do the backups. |
+| `inner-statusline.json` | Your original status line setting, so uninstall can restore it. |
+| `thresholds.json` | Thresholds set with `/usage-guard:setup thresholds`. |
+| `bin/` | The relay script. |
+| `config.json`, `onboarding.json`, `last_render` | A copy of your settings, notice bookkeeping and when the relay last ran. |
+| `relay-removed` | Present after `/usage-guard:setup uninstall`. While it exists, nothing is recorded and no alerts are sent. |
 
-Run `/usage-guard:status`. It shows whether the relay is configured and when it last ran, each window's usage, tier and reset time, your thresholds, and what the current session has been told.
-
-- **"has never run"**: the relay is not being used. Your status line is overridden by managed settings or a project's `.claude/settings.json` or `.claude/settings.local.json`, or `disableAllHooks` is on.
-- **"old usage-guard relay" from setup**: your `statusLine` points at a relay from an earlier install, for example under `~/.claude/plugins/data/`. Your original status line may be in that folder's `inner-statusline.json` or `backups/`. Put it back in `statusLine` (or remove the key), then run `/usage-guard:setup` again.
-- **"no usage data"**: your plan doesn't provide it (see the table above), or there hasn't been an API response yet.
-- **No alerts, but usage is high**: check that `enabled` is on and that the window's reading hasn't reset.
+Uninstalling the plugin leaves this folder in place. Delete it yourself if you don't need it.
 
 ## Development
 
+The plugin is written in bash (compatible with macOS's bash 3.2) and `jq`, with tests in [bats](https://github.com/bats-core/bats-core).
+
 ```bash
 brew install bash bats-core jq shellcheck
-"$(brew --prefix)/bin/bash" "$(command -v bats)" tests
-UG_BASH=/bin/bash "$(brew --prefix)/bin/bash" "$(command -v bats)" tests
+
+"$(brew --prefix)/bin/bash" "$(command -v bats)" tests                     # tests
+UG_BASH=/bin/bash "$(brew --prefix)/bin/bash" "$(command -v bats)" tests   # tests, running the scripts under bash 3.2
 shellcheck scripts/*.sh
 claude plugin validate . --strict
-claude --plugin-dir .
+claude --plugin-dir .                                                        # try your changes
 ```
 
-Run bats under bash 4 or later: under macOS's bash 3.2 it does not fail a test on a failing `[[ ]]` that isn't the last command. `UG_BASH=/bin/bash` makes the tests run the scripts themselves under bash 3.2, which they must support. On Linux, `bats tests` with the system bash is enough. CI on macOS runs bats under Homebrew bash with `UG_BASH=/bin/bash`; CI on Ubuntu runs `bats tests` with the system bash.
+Run bats under bash 4 or later. Under bash 3.2 it can report a test as passing when one of its checks failed. On Linux, `bats tests` with the system bash is enough. CI runs the tests on macOS (with the scripts under bash 3.2) and on Ubuntu.
 
 ## License
 
