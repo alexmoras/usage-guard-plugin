@@ -163,3 +163,90 @@ sysmsg() { jq -r '.systemMessage' <<<"$output"; }
   run_guard "not json"
   [ "$status" -eq 0 ]
 }
+
+fake_plugin_root() {
+  # Copy the plugin so tests can change its version without touching the repo.
+  cp -R "$ROOT" "$TEST_TMP/plugin"
+  jq '.version = "9.9.9"' "$ROOT/.claude-plugin/plugin.json" >"$TEST_TMP/plugin/.claude-plugin/plugin.json"
+}
+
+@test "SessionStart installs relay files and refreshes them on version change" {
+  run_guard "$(hook_input SessionStart)"
+  [ -x "$CLAUDE_PLUGIN_DATA/bin/relay.sh" ]
+  [ -f "$CLAUDE_PLUGIN_DATA/bin/lib.sh" ]
+  [ "$(cat "$CLAUDE_PLUGIN_DATA/bin/VERSION")" = "$(jq -r .version "$ROOT/.claude-plugin/plugin.json")" ]
+  fake_plugin_root
+  run "$UG_BASH" "$TEST_TMP/plugin/scripts/guard.sh" <<<"$(hook_input SessionStart)"
+  [ "$(cat "$CLAUDE_PLUGIN_DATA/bin/VERSION")" = "9.9.9" ]
+}
+
+@test "SessionStart prunes markers older than 8 days" {
+  mkdir -p "$CLAUDE_PLUGIN_DATA/sent/old/main" "$CLAUDE_PLUGIN_DATA/sent/new/main"
+  touch -t 202001010000 "$CLAUDE_PLUGIN_DATA/sent/old/main/five_hour-1-warn"
+  touch "$CLAUDE_PLUGIN_DATA/sent/new/main/five_hour-1-warn"
+  run_guard "$(hook_input SessionStart)"
+  [ ! -e "$CLAUDE_PLUGIN_DATA/sent/old" ]
+  [ -f "$CLAUDE_PLUGIN_DATA/sent/new/main/five_hour-1-warn" ]
+}
+
+@test "SessionStart writes a config snapshot" {
+  export CLAUDE_PLUGIN_OPTION_FIVE_HOUR_WARN=60 CLAUDE_PLUGIN_OPTION_ENABLED=false
+  run_guard "$(hook_input SessionStart)"
+  [ "$(jq -r .thresholds.five_hour.warn "$CLAUDE_PLUGIN_DATA/config.json")" = 60 ]
+  [ "$(jq -r .enabled "$CLAUDE_PLUGIN_DATA/config.json")" = false ]
+  [ "$(jq -r .handoff_path "$CLAUDE_PLUGIN_DATA/config.json")" = HANDOFF.md ]
+}
+
+@test "onboarding: setup hint when relay has never run, once per day" {
+  run_guard "$(hook_input SessionStart s1)"
+  [ "$(sysmsg)" = "usage-guard: run /usage-guard:setup to enable usage alerts." ]
+  run_guard "$(hook_input SessionStart s2)"
+  [ -z "$output" ]
+  export USAGE_GUARD_NOW=$((NOW + 86400))
+  run_guard "$(hook_input SessionStart s3)"
+  [[ $(sysmsg) == *"/usage-guard:setup"* ]]
+}
+
+@test "onboarding: configured but never ran points to status" {
+  jq -n --arg c "\"$CLAUDE_PLUGIN_DATA/bin/relay.sh\"" '{statusLine: {type: "command", command: $c}}' \
+    >"$HOME/.claude/settings.json"
+  run_guard "$(hook_input SessionStart)"
+  [[ $(sysmsg) == "usage-guard's status line relay is configured but hasn't run."* ]]
+}
+
+@test "onboarding: no-data notice after 3 sessions, shown once" {
+  echo "$NOW" >"$CLAUDE_PLUGIN_DATA/last_render"
+  run_guard "$(hook_input SessionStart s1)"
+  [ -z "$output" ]
+  run_guard "$(hook_input SessionStart s2)"
+  [ -z "$output" ]
+  run_guard "$(hook_input SessionStart s3)"
+  [[ $(sysmsg) == "usage-guard hasn't received any usage data."* ]]
+  run_guard "$(hook_input SessionStart s4)"
+  [ -z "$output" ]
+}
+
+@test "onboarding: silent once data is flowing" {
+  echo "$NOW" >"$CLAUDE_PLUGIN_DATA/last_render"
+  write_state "$(state_entry five_hour 10)"
+  run_guard "$(hook_input SessionStart)"
+  [ -z "$output" ]
+}
+
+@test "SessionStart combines an onboarding notice with an alert" {
+  write_state "$(state_entry five_hour 80)"
+  run_guard "$(hook_input SessionStart)"
+  [ "$(sysmsg)" = "usage-guard: run /usage-guard:setup to enable usage alerts.
+⚠️ usage-guard: 5-hour 80%, resets in 1h 12m" ]
+  [[ $(ctx) == *"Conserve usage"* ]]
+}
+
+@test "missing jq: one notice per day on SessionStart, silent otherwise" {
+  export USAGE_GUARD_JQ=/nonexistent/jq
+  run_guard '{"hook_event_name":"UserPromptSubmit","session_id":"s"}'
+  [ -z "$output" ]
+  run_guard '{"hook_event_name": "SessionStart","session_id":"s"}'
+  [[ $output == *'"systemMessage":"usage-guard needs jq'* ]]
+  run_guard '{"hook_event_name":"SessionStart","session_id":"s"}'
+  [ -z "$output" ]
+}

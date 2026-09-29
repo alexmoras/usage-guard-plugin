@@ -11,9 +11,70 @@ data=$(ug_data_dir)
 now=$(ug_now)
 TAB=$(printf '\t')
 
-# Filled in by Task 5; prints an optional user notice.
+# SessionStart upkeep. Prints an optional one-line notice for the user.
 session_start() {
-  :
+  housekeeping
+  snapshot_config
+  onboarding
+}
+
+housekeeping() {
+  if [ -d "$data/sent" ]; then
+    find "$data/sent" -type f -mtime +8 -delete
+    find "$data/sent" -mindepth 1 -type d -empty -delete
+  fi
+  if [ ! -f "$data/bin/relay.sh" ] ||
+    [ "$(cat "$data/bin/VERSION" 2>/dev/null)" != "$(ug_plugin_version "$ROOT")" ]; then
+    ug_install_relay_files "$ROOT" "$data"
+  fi
+}
+
+# Hooks see plugin options but the Bash tool doesn't, so /usage-guard:status
+# reads this snapshot.
+snapshot_config() {
+  jq -nc \
+    --argjson enabled "$(ug_bool_option enabled true)" \
+    --argjson thresholds "$(ug_thresholds_json)" \
+    --arg handoff_path "$(ug_option handoff_path HANDOFF.md)" \
+    --arg resume_max_wait "$(ug_resume_max_wait)" \
+    --argjson commit "$(ug_bool_option commit_on_wind_down false)" \
+    --arg messages_dir "$(ug_option messages_dir "")" \
+    --argjson now "$now" \
+    '{enabled: $enabled, thresholds: $thresholds, handoff_path: $handoff_path,
+      resume_max_wait: $resume_max_wait, commit_on_wind_down: $commit,
+      messages_dir: $messages_dir, updated_at: $now}' |
+    ug_write_atomic "$data/config.json"
+}
+
+onboarding() {
+  local file="$data/onboarding.json" state day
+  state=$(jq -c 'if type == "object" then . else {} end' "$file" 2>/dev/null)
+  [ -n "$state" ] || state='{}'
+  day=$((now / 86400))
+  if [ -f "$data/last_render" ]; then
+    [ -f "$data/state.json" ] && return 0
+    state=$(jq -c '.sessions_without_data = ((.sessions_without_data // 0) + 1)' <<<"$state")
+    if [ "$(jq -r '.sessions_without_data >= 3 and (.no_data_shown | not)' <<<"$state")" = true ]; then
+      state=$(jq -c '.no_data_shown = true' <<<"$state")
+      echo "usage-guard hasn't received any usage data. Your plan may not provide it; run /usage-guard:status for details."
+    fi
+  elif [ "$(jq -r --argjson d "$day" '.last_setup_notice_day == $d' <<<"$state")" != true ]; then
+    state=$(jq -c --argjson d "$day" '.last_setup_notice_day = $d' <<<"$state")
+    if [ "$(ug_statusline_command "$(ug_config_dir)/settings.json")" = "$(ug_relay_command "$data")" ]; then
+      echo "usage-guard's status line relay is configured but hasn't run. Managed or project settings may override it; run /usage-guard:status for details."
+    else
+      echo "usage-guard: run /usage-guard:setup to enable usage alerts."
+    fi
+  fi
+  printf '%s' "$state" | ug_write_atomic "$file"
+}
+
+nojq_notice() {
+  local marker
+  marker="$data/.nojq-$((now / 86400))"
+  [ -e "$marker" ] && return 0
+  mkdir -p "$data" && touch "$marker"
+  printf '%s\n' '{"systemMessage":"usage-guard needs jq to work. Install it (macOS: brew install jq; Debian/Ubuntu: sudo apt install jq) and restart Claude Code."}'
 }
 
 # Marker directory for this session and agent.
@@ -75,11 +136,11 @@ emit() {
     p_label="$p_label (exceeded)"
   fi
   if [ "$p_tier" = warn ]; then
-    template=warn.md
+    template="warn.md"
   elif [ -n "$(jq -r '.agent_id // empty' <<<"$input")" ]; then
-    template=wind-down-subagent.md
+    template="wind-down-subagent.md"
   else
-    template=wind-down.md
+    template="wind-down.md"
   fi
   if [ "$(ug_bool_option commit_on_wind_down false)" = true ]; then
     commit_step=" Then commit work in progress if this is a git repository."
@@ -110,7 +171,12 @@ $sm"
 
 main() {
   local event notice="" dir
-  ug_have_jq || return 0
+  if ! ug_have_jq; then
+    if printf '%s' "$input" | grep -q '"hook_event_name" *: *"SessionStart"'; then
+      nojq_notice
+    fi
+    return 0
+  fi
   event=$(jq -r '.hook_event_name // empty' <<<"$input") || return 0
   if [ "$event" = SessionStart ]; then
     notice=$(session_start)
