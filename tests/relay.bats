@@ -75,3 +75,10 @@ run_relay() {
   run_relay "}{ not json"
   [ "$status" -eq 0 ]
 }
+
+@test "an inner status line that points back at the relay does not recurse" {
+  jq -n --arg c "\"$CLAUDE_PLUGIN_DATA/bin/relay.sh\"" '{type: "command", command: $c}' >"$CLAUDE_PLUGIN_DATA/inner-statusline.json"
+  run_relay '{"model":{"display_name":"Opus"}}'
+  [ "$status" -eq 0 ]
+  [ "$output" = "Opus" ]
+}

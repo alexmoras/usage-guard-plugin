@@ -51,18 +51,20 @@ settings_json() {
 
 backup_settings() {
   [ -f "$settings" ] || return 0
-  mkdir -p "$data/backups"
-  cp "$settings" "$data/backups/settings-$now.json"
+  mkdir -p "$data/backups" && cp "$settings" "$data/backups/settings-$now.json"
 }
 
 # Write stdin to settings; write through symlinks so dotfile links survive.
 write_settings() {
-  local content
+  local content mode
   content=$(cat)
   if [ -L "$settings" ]; then
     printf '%s\n' "$content" >"$settings"
   else
-    printf '%s\n' "$content" | ug_write_atomic "$settings"
+    mode=$(ug_file_mode "$settings")
+    printf '%s\n' "$content" | ug_write_atomic "$settings" || return 1
+    # mktemp files are 0600; keep the user's original mode.
+    [ -z "$mode" ] || chmod "$mode" "$settings"
   fi
 }
 
@@ -77,7 +79,7 @@ project_warnings() {
 }
 
 cmd_install() {
-  local blockers current updated
+  local blockers current updated inner_json prev_inner
   if ! ug_have_jq; then
     echo "usage-guard needs jq. Install it (macOS: brew install jq; Debian/Ubuntu: sudo apt install jq), then run setup again."
     return 1
@@ -105,32 +107,55 @@ cmd_install() {
     echo "Couldn't copy the relay into $data/bin."
     return 1
   fi
-  if [ "$(ug_statusline_command "$settings")" = "$relay_cmd" ]; then
+  if ug_is_relay_command "$(ug_statusline_command "$settings")" "$data"; then
     echo "usage-guard is already installed."
     return 0
   fi
-  jq '.statusLine // null' <<<"$current" | ug_write_atomic "$data/inner-statusline.json"
-  backup_settings
+  inner_json=$(jq -c '.statusLine // null' <<<"$current") || return 1
   updated=$(jq --arg cmd "$relay_cmd" \
     '.statusLine = ((if (.statusLine | type) == "object" then .statusLine else {} end) + {type: "command", command: $cmd})' \
     <<<"$current") || return 1
-  printf '%s\n' "$updated" | write_settings
+  if ! backup_settings; then
+    echo "Couldn't back up $settings into $data/backups. Nothing was changed."
+    return 1
+  fi
+  prev_inner=
+  [ -f "$data/inner-statusline.json" ] && prev_inner=$(cat "$data/inner-statusline.json")
+  if ! printf '%s\n' "$inner_json" | ug_write_atomic "$data/inner-statusline.json"; then
+    echo "Couldn't save your current status line to $data. Nothing was changed."
+    return 1
+  fi
+  if ! printf '%s\n' "$updated" | write_settings; then
+    if [ -n "$prev_inner" ]; then
+      printf '%s\n' "$prev_inner" | ug_write_atomic "$data/inner-statusline.json"
+    else
+      rm -f "$data/inner-statusline.json"
+    fi
+    echo "Couldn't write $settings. Nothing was changed."
+    return 1
+  fi
   echo "Installed. usage-guard now records usage from your status line; your previous status line (if any) still renders."
   echo "Alerts start after the next API response. Check anytime with /usage-guard:status."
 }
 
 cmd_uninstall() {
   local inner updated
-  if [ "$(ug_statusline_command "$settings")" != "$relay_cmd" ]; then
+  if ! ug_is_relay_command "$(ug_statusline_command "$settings")" "$data"; then
     echo "usage-guard's relay isn't your current status line; nothing to undo."
     return 0
   fi
   inner=$(jq -c . "$data/inner-statusline.json" 2>/dev/null)
   [ -n "$inner" ] || inner=null
-  backup_settings
+  if ! backup_settings; then
+    echo "Couldn't back up $settings into $data/backups. Nothing was changed."
+    return 1
+  fi
   updated=$(jq --argjson inner "$inner" \
     'if $inner == null then del(.statusLine) else .statusLine = $inner end' "$settings") || return 1
-  printf '%s\n' "$updated" | write_settings
+  if ! printf '%s\n' "$updated" | write_settings; then
+    echo "Couldn't write $settings. Nothing was changed."
+    return 1
+  fi
   rm -f "$data/inner-statusline.json"
   echo "Removed. Your previous status line setting has been restored."
 }

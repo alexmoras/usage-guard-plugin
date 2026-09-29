@@ -197,3 +197,38 @@ ug_statusline_command() {
       elif type == "string" then .
       else "" end' "$1" 2>/dev/null
 }
+
+# True when status line command $1 runs the installed relay in data dir $2, however
+# it is spelled: quoted or bare, with a bash/sh prefix, or with a leading $HOME or ~.
+ug_is_relay_command() {
+  local cmd=$1 want="$2/bin/relay.sh"
+  cmd="${cmd#"${cmd%%[![:space:]]*}"}"
+  cmd="${cmd%"${cmd##*[![:space:]]}"}"
+  case $cmd in
+    "bash "* | "sh "*)
+      cmd=${cmd#* }
+      cmd="${cmd#"${cmd%%[![:space:]]*}"}"
+      ;;
+  esac
+  case $cmd in
+    \"*\") cmd=${cmd#\"} cmd=${cmd%\"} ;;
+    \'*\') cmd=${cmd#\'} cmd=${cmd%\'} ;;
+  esac
+  # shellcheck disable=SC2016  # literal $HOME is what we match
+  case $cmd in
+    '$HOME'/*) cmd="$HOME/${cmd#'$HOME'/}" ;;
+    '${HOME}'/*) cmd="$HOME/${cmd#'${HOME}'/}" ;;
+    '~'/*) cmd="$HOME/${cmd#'~'/}" ;;
+  esac
+  [ "$cmd" = "$want" ]
+}
+
+# Octal permission bits of $1 on Linux or macOS/BSD; empty if unknown.
+ug_file_mode() {
+  local m
+  m=$(stat -c %a "$1" 2>/dev/null) || m=$(stat -f %Lp "$1" 2>/dev/null) || m=
+  case $m in
+    '' | *[!0-7]*) m= ;;
+  esac
+  printf '%s' "$m"
+}

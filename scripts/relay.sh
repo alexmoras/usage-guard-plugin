@@ -39,8 +39,9 @@ render() {
   inner=$(jq -r 'if type == "string" then .
     elif type == "object" and .type == "command" then (.command // "")
     else "" end' "$data/inner-statusline.json" 2>/dev/null)
-  if [ -n "$inner" ]; then
-    printf '%s' "$input" | bash -c "$inner"
+  # USAGE_GUARD_IN_RELAY stops a status line that points back at the relay from recursing.
+  if [ -n "$inner" ] && [ -z "${USAGE_GUARD_IN_RELAY:-}" ]; then
+    printf '%s' "$input" | USAGE_GUARD_IN_RELAY=1 bash -c "$inner"
   else
     default_line
   fi

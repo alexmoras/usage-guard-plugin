@@ -163,3 +163,68 @@ run_setup() { run "$UG_BASH" "$ROOT/scripts/setup.sh" "$@"; }
   [ "$status" -eq 1 ]
   [[ $output == *"usage: setup.sh install|uninstall|status"* ]]
 }
+
+skip_if_root() { [ "$(id -u)" -eq 0 ] && skip "root ignores directory permissions"; return 0; }
+
+@test "install with an unwritable settings dir fails and changes nothing" {
+  skip_if_root
+  echo '{"statusLine":"~/sl.sh"}' >"$SETTINGS"
+  chmod 555 "$HOME/.claude"
+  run_setup install
+  chmod 755 "$HOME/.claude"
+  [ "$status" -eq 1 ]
+  [[ $output == *"Couldn't write $SETTINGS"* ]]
+  [[ $output != *"Installed"* ]]
+  [ "$(cat "$SETTINGS")" = '{"statusLine":"~/sl.sh"}' ]
+  [ ! -f "$CLAUDE_PLUGIN_DATA/inner-statusline.json" ]
+}
+
+@test "uninstall with an unwritable settings dir fails and keeps the saved status line" {
+  skip_if_root
+  echo '{"statusLine":"~/sl.sh"}' >"$SETTINGS"
+  run_setup install
+  chmod 555 "$HOME/.claude"
+  run_setup uninstall
+  chmod 755 "$HOME/.claude"
+  [ "$status" -eq 1 ]
+  [[ $output == *"Couldn't write $SETTINGS"* ]]
+  [ "$(jq -c . "$CLAUDE_PLUGIN_DATA/inner-statusline.json")" = '"~/sl.sh"' ]
+  [ "$(jq -r .statusLine.command "$SETTINGS")" = "$RELAY_CMD" ]
+}
+
+@test "install aborts when the backup can't be written" {
+  echo '{"statusLine":"~/sl.sh"}' >"$SETTINGS"
+  mkdir -p "$CLAUDE_PLUGIN_DATA"
+  echo x >"$CLAUDE_PLUGIN_DATA/backups"
+  run_setup install
+  [ "$status" -eq 1 ]
+  [[ $output == *"Couldn't back up"* ]]
+  [ "$(cat "$SETTINGS")" = '{"statusLine":"~/sl.sh"}' ]
+  [ ! -f "$CLAUDE_PLUGIN_DATA/inner-statusline.json" ]
+}
+
+@test "install recognises other spellings of the relay command as already installed" {
+  export CLAUDE_PLUGIN_DATA="$HOME/ug-data"
+  for cmd in '"$HOME/ug-data/bin/relay.sh"' "$HOME/ug-data/bin/relay.sh" "bash $HOME/ug-data/bin/relay.sh" "bash \"$HOME/ug-data/bin/relay.sh\"" '~/ug-data/bin/relay.sh'; do
+    rm -rf "$CLAUDE_PLUGIN_DATA"
+    jq -n --arg c "$cmd" '{statusLine: {type: "command", command: $c}}' >"$SETTINGS"
+    cp "$SETTINGS" "$TEST_TMP/before.json"
+    run_setup install
+    [ "$status" -eq 0 ]
+    [[ $output == *"already installed"* ]]
+    [ ! -f "$CLAUDE_PLUGIN_DATA/inner-statusline.json" ]
+    cmp "$SETTINGS" "$TEST_TMP/before.json"
+  done
+}
+
+@test "install preserves the settings file mode" {
+  echo '{}' >"$SETTINGS"
+  chmod 644 "$SETTINGS"
+  run_setup install
+  [ "$status" -eq 0 ]
+  mode=$(stat -c %a "$SETTINGS" 2>/dev/null || stat -f %Lp "$SETTINGS")
+  [ "$mode" = 644 ]
+  run_setup uninstall
+  mode=$(stat -c %a "$SETTINGS" 2>/dev/null || stat -f %Lp "$SETTINGS")
+  [ "$mode" = 644 ]
+}
