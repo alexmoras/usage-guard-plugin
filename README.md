@@ -34,7 +34,7 @@ On unsupported setups the plugin stays quiet, and `/usage-guard:status` tells yo
 Run these inside Claude Code:
 
 ```
-/plugin marketplace add <github-user>/<repo>
+/plugin marketplace add alexmoras/usage-guard-plugin
 /plugin install usage-guard@usage-guard
 ```
 
@@ -61,10 +61,10 @@ You should see the relay's "last ran" time and your current usage, for example `
 
 - **From a local copy:**
   ```
-  git clone https://github.com/<github-user>/<repo>.git
+  git clone https://github.com/alexmoras/usage-guard-plugin.git
   ```
-  Then, in Claude Code, run `/plugin marketplace add /path/to/<repo>`, followed by the same `/plugin install` and `/usage-guard:setup` steps as above.
-- **Try it without installing:** start Claude Code with `claude --plugin-dir /path/to/<repo>`, then run `/usage-guard:setup`. When you're done, run `/usage-guard:setup uninstall`.
+  Then, in Claude Code, run `/plugin marketplace add /path/to/usage-guard-plugin`, followed by the same `/plugin install` and `/usage-guard:setup` steps as above.
+- **Try it without installing:** start Claude Code with `claude --plugin-dir /path/to/usage-guard-plugin`, then run `/usage-guard:setup`. When you're done, run `/usage-guard:setup uninstall`.
 
 ## Using it
 
@@ -177,7 +177,7 @@ If several limits cross a threshold at once, Claude gets one message:
 To roll usage-guard out to a team:
 
 1. If you use `strictKnownMarketplaces`, add the usage-guard marketplace to the allowlist.
-2. Force-enable `usage-guard@<marketplace>` in managed `enabledPlugins`. Its hooks then run even under `allowManagedHooksOnly`. That exemption matches the full `plugin@marketplace` ID, so the same plugin installed from a different marketplace stays blocked.
+2. Force-enable `usage-guard@usage-guard` in managed `enabledPlugins`. Its hooks then run even under `allowManagedHooksOnly`. That exemption matches the full `plugin@marketplace` ID, so the same plugin installed from a different marketplace stays blocked.
 3. Set the managed `statusLine` to:
 
    ```json
@@ -234,4 +234,4 @@ Run bats under bash 4 or later. Under bash 3.2 it can report a test as passing w
 
 ## License
 
-MIT
+[MIT](LICENSE)

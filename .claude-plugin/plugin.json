@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "description": "Tells Claude when your plan's usage limits are getting close, so it conserves usage and then winds down with a handoff before you hit them.",
   "author": { "name": "Alex Moras", "email": "alex@codesix.dev" },
+  "homepage": "https://github.com/alexmoras/usage-guard-plugin",
+  "repository": "https://github.com/alexmoras/usage-guard-plugin",
   "license": "MIT",
   "keywords": ["usage", "rate-limits", "status-line", "handoff"],
   "userConfig": {
