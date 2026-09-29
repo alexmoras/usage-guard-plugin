@@ -160,9 +160,98 @@ cmd_uninstall() {
   echo "Removed. Your previous status line setting has been restored."
 }
 
+tier_word() {
+  case $1 in wind_down) echo "wind-down" ;; *) echo "$1" ;; esac
+}
+
+cmd_status() {
+  local session=${1:-} cfg="$data/config.json" th blockers
+  case $session in '' | '$'*) session="" ;; esac
+
+  printf 'usage-guard %s\n\n' "$(ug_plugin_version "$ROOT")"
+
+  echo "Status line relay"
+  if ug_is_relay_command "$(ug_statusline_command "$settings")" "$data"; then
+    echo "  configured in $settings"
+  else
+    echo "  not configured in $settings (run /usage-guard:setup)"
+  fi
+  if [ -f "$data/last_render" ]; then
+    echo "  last ran $(ug_fmt_duration $((now - $(cat "$data/last_render")))) ago"
+  else
+    echo "  has never run. If it's configured, managed or project settings may be overriding it."
+  fi
+  blockers=$(managed_blockers)
+  if [ -n "$blockers" ]; then
+    echo "  blocked by managed settings:"
+    printf '%s\n' "$blockers" | sed 's/^/    - /'
+  fi
+  if [ -f "$settings" ] && [ "$(jq -r '.disableAllHooks == true' "$settings" 2>/dev/null)" = true ]; then
+    echo "  disableAllHooks is true in $settings, which turns off the status line"
+  fi
+
+  if [ -f "$cfg" ]; then
+    th=$(jq -c .thresholds "$cfg")
+  else
+    th=$(ug_thresholds_json)
+  fi
+
+  echo
+  echo "Usage"
+  if [ -f "$data/state.json" ]; then
+    jq -r --argjson th "$th" '
+      to_entries[]
+      | .value.used_percentage as $p
+      | [.key, ($p | tostring), (.value.resets_at | tostring), (.value.updated_at | tostring),
+         (if $th[.key] == null then ""
+          elif $p >= $th[.key].wind_down then "wind_down"
+          elif $p >= $th[.key].warn then "warn" else "" end)]
+      | @tsv' "$data/state.json" |
+      while IFS="$(printf '\t')" read -r w p r u t; do
+        if [ "$r" -le "$now" ]; then
+          echo "  $(ug_window_label "$w"): window has reset (last reading $(ug_fmt_pct "$w" "$p"))"
+          continue
+        fi
+        echo "  $(ug_window_label "$w"): $(ug_fmt_pct "$w" "$p")${t:+ ($(tier_word "$t"))}, resets in $(ug_fmt_duration $((r - now))) at $(ug_fmt_local_time "$r"); updated $(ug_fmt_duration $((now - u))) ago"
+      done
+  else
+    echo "  no usage data received yet. Claude Code only provides it on claude.ai Pro/Max plans and behind a Claude apps gateway with spend limits."
+  fi
+
+  echo
+  echo "Settings"
+  if [ -f "$cfg" ]; then
+    [ "$(jq -r .enabled "$cfg")" = false ] && echo "  alerts are disabled"
+    echo "  handoff file: $(jq -r .handoff_path "$cfg")"
+    echo "  resume scheduling limit: $(jq -r .resume_max_wait "$cfg")"
+  else
+    echo "  defaults (your settings appear here after the next session starts)"
+  fi
+  echo "  thresholds (warn / wind-down):"
+  jq -r 'to_entries[] | [.key, (.value.warn | tostring), (.value.wind_down | tostring), (.value.fallback | tostring)] | @tsv' <<<"$th" |
+    while IFS="$(printf '\t')" read -r w a b f; do
+      echo "    $(ug_window_label "$w"): $a% / $b%$([ "$f" = true ] && echo " (invalid setting, using defaults)")"
+    done
+
+  if [ -n "$session" ] && [ -d "$data/sent/$(ug_safe_id "$session")" ]; then
+    echo
+    echo "This session has been told"
+    local agent_dir marker name
+    for agent_dir in "$data/sent/$(ug_safe_id "$session")"/*; do
+      [ -d "$agent_dir" ] || continue
+      for marker in "$agent_dir"/*; do
+        [ -f "$marker" ] || continue
+        name=$(basename "$marker")
+        echo "  $(basename "$agent_dir"): $(ug_window_label "${name%%-*}") $(tier_word "${name##*-}")"
+      done
+    done
+  fi
+}
+
 case ${1:-} in
   install) cmd_install ;;
   uninstall) cmd_uninstall ;;
+  status) cmd_status "${2:-}" ;;
   *)
     echo "usage: setup.sh install|uninstall|status [session_id]"
     exit 1
