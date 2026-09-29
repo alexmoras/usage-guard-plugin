@@ -24,7 +24,8 @@ run_status() { run "$UG_BASH" "$ROOT/scripts/setup.sh" status "$@"; }
   echo $((NOW - 120)) >"$CLAUDE_PLUGIN_DATA/last_render"
   write_state "$(jq -sc add <<<"$(state_entry five_hour 91) $(state_entry seven_day 40 "$WEEK_RESET")")"
   run_status
-  [[ $output == *"configured in $HOME/.claude/settings.json"* ]]
+  [[ $output == *"  configured in $HOME/.claude/settings.json"* ]]
+  [[ $output != *"not configured"* ]]
   [[ $output == *"last ran 2m ago"* ]]
   [[ $output == *"5-hour: 91% (wind-down), resets in 1h 12m at "* ]]
   [[ $output == *"weekly: 40%, resets in 3d 2h at "* ]]
