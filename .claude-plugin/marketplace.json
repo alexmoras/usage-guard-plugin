@@ -10,7 +10,11 @@
   "plugins": [
     {
       "name": "usage-guard",
-      "source": "./",
+      "source": {
+        "source": "github",
+        "repo": "alexmoras/usage-guard-plugin",
+        "ref": "release"
+      },
       "description": "Usage-limit alerts that Claude acts on: conserve, then wind down with a handoff."
     }
   ]
