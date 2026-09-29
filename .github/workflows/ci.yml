@@ -1,0 +1,33 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bats jq shellcheck
+      - name: Install tools (macOS)
+        if: runner.os == 'macOS'
+        # bats must run under bash >= 4 (bash 3.2 does not fail a test on a
+        # non-final failing [[ ]]); the scripts themselves run under /bin/bash.
+        run: brew install bash bats-core jq shellcheck
+      - name: Lint
+        run: shellcheck scripts/*.sh
+      - name: Test (Linux)
+        if: runner.os == 'Linux'
+        run: bats tests
+        env:
+          UG_BASH: bash
+      - name: Test (macOS)
+        if: runner.os == 'macOS'
+        run: '"$(brew --prefix)/bin/bash" "$(command -v bats)" tests'
+        env:
+          UG_BASH: /bin/bash

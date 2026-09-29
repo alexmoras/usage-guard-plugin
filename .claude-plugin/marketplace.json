@@ -1,0 +1,17 @@
+{
+  "name": "usage-guard",
+  "owner": {
+    "name": "Alex",
+    "email": "alex@codesix.dev"
+  },
+  "metadata": {
+    "description": "Usage-limit alerts that Claude acts on: conserve, then wind down with a handoff."
+  },
+  "plugins": [
+    {
+      "name": "usage-guard",
+      "source": "./",
+      "description": "Usage-limit alerts that Claude acts on: conserve, then wind down with a handoff."
+    }
+  ]
+}

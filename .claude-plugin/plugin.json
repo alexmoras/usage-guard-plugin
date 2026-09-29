@@ -1,1 +1,76 @@
-{"name":"usage-guard","version":"0.1.0"}
+{
+  "name": "usage-guard",
+  "displayName": "Usage Guard",
+  "version": "0.1.0",
+  "description": "Tells Claude when your plan's usage limits are getting close, so it conserves usage and then winds down with a handoff before you hit them.",
+  "author": { "name": "Alex Moras", "email": "alex@codesix.dev" },
+  "license": "MIT",
+  "keywords": ["usage", "rate-limits", "status-line", "handoff"],
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enable alerts",
+      "description": "Turn usage alerts on or off without uninstalling.",
+      "default": true
+    },
+    "five_hour_warn": {
+      "type": "number",
+      "title": "5-hour: warn at %",
+      "description": "Claude starts conserving usage at this share of the 5-hour limit.",
+      "default": 75, "min": 1, "max": 100
+    },
+    "five_hour_wind_down": {
+      "type": "number",
+      "title": "5-hour: wind down at %",
+      "description": "Claude wraps up and writes a handoff at this share of the 5-hour limit.",
+      "default": 90, "min": 1, "max": 100
+    },
+    "seven_day_warn": {
+      "type": "number",
+      "title": "Weekly: warn at %",
+      "description": "Claude starts conserving usage at this share of the weekly limit.",
+      "default": 85, "min": 1, "max": 100
+    },
+    "seven_day_wind_down": {
+      "type": "number",
+      "title": "Weekly: wind down at %",
+      "description": "Claude wraps up and writes a handoff at this share of the weekly limit.",
+      "default": 95, "min": 1, "max": 100
+    },
+    "spend_limit_warn": {
+      "type": "number",
+      "title": "Spend limit: warn at %",
+      "description": "For Claude apps gateway users: conserve at this share of your spend limit.",
+      "default": 75, "min": 1, "max": 100
+    },
+    "spend_limit_wind_down": {
+      "type": "number",
+      "title": "Spend limit: wind down at %",
+      "description": "For Claude apps gateway users: wrap up at this share of your spend limit.",
+      "default": 95, "min": 1, "max": 100
+    },
+    "handoff_path": {
+      "type": "string",
+      "title": "Handoff file",
+      "description": "Where Claude writes its handoff when winding down, relative to the project root.",
+      "default": "HANDOFF.md"
+    },
+    "resume_max_wait": {
+      "type": "string",
+      "title": "Longest wait to schedule a resume",
+      "description": "Claude only schedules a resume prompt if usage resets within this time, e.g. 90m or 6h.",
+      "default": "6h"
+    },
+    "commit_on_wind_down": {
+      "type": "boolean",
+      "title": "Commit when winding down",
+      "description": "Also ask Claude to commit work in progress when winding down.",
+      "default": false
+    },
+    "messages_dir": {
+      "type": "directory",
+      "title": "Custom messages folder",
+      "description": "Optional folder with warn.md, wind-down.md or wind-down-subagent.md to replace the default messages."
+    }
+  }
+}
