@@ -338,6 +338,7 @@ skip_if_root() { [ "$(id -u)" -eq 0 ] && skip "root ignores directory permission
   run_setup uninstall
   run_setup status
   [[ $output == *"removed with /usage-guard:setup uninstall"* ]]
+  [[ $output != *"has never run"* ]]
 }
 
 @test "managed statusLine that runs the relay is success, not a blocker" {

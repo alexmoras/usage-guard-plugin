@@ -233,7 +233,7 @@ cmd_status() {
   fi
   if [ -f "$data/last_render" ]; then
     echo "  last ran $(ug_fmt_duration $((now - $(cat "$data/last_render")))) ago"
-  else
+  elif ! ug_relay_removed "$data"; then
     echo "  has never run. If it's configured, managed or project settings may be overriding it."
   fi
   blockers=$(managed_blockers)
