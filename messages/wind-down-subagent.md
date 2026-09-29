@@ -1,0 +1,1 @@
+Plan usage is at {{pct}}% ({{window}}). Stop your task now. Your final report must say you stopped because of usage limits and list what's done, what's outstanding and any partial results. Your parent session has also been told, so don't try to schedule anything.
