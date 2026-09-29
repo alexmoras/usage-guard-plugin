@@ -28,13 +28,21 @@ Requirements: `jq`. macOS and Linux are supported. Windows (Git Bash) is unteste
 
 Plugins can't set the status line, so `/usage-guard:setup` adds a small relay in front of your existing one. The relay records the usage data, then runs your original status line, which keeps rendering as before. If you had no status line, it prints a minimal default.
 
-`/usage-guard:setup uninstall` restores your previous `statusLine` setting exactly. Every change to `settings.json` is backed up first, to `backups/` in the plugin data folder.
+`/usage-guard:setup uninstall` restores your previous `statusLine` setting exactly. Every change to `settings.json` is backed up first, to `~/.claude/usage-guard/backups/`.
 
 Setup is safe to repeat. It recognizes its own relay however it is written and won't wrap it in itself. It makes no changes if it can't back up or write your settings, keeps the file's permissions, and writes through a symlinked `settings.json`. If your `settings.json` is invalid JSON, setup stops and changes nothing.
 
-Setup also refuses to install, and tells you why, when managed settings set a `statusLine` or `allowManagedHooksOnly`, or when `disableAllHooks` is true. It warns you if a project's `.claude/settings.json` or `.claude/settings.local.json` sets its own `statusLine`, because that overrides yours in that project.
+Setup also refuses to install, and tells you why, when managed settings set a `statusLine` or `allowManagedHooksOnly`, or when `disableAllHooks` is true. If the managed `statusLine` already runs usage-guard's relay, setup says there is nothing to do. If your `statusLine` runs a relay from an older usage-guard install, setup stops without changes and tells you where that install kept your original status line. It warns you if a project's `.claude/settings.json` or `.claude/settings.local.json` sets its own `statusLine`, because that overrides yours in that project.
 
 Alerts start after the first API response of a session.
+
+## Uninstalling
+
+1. Run `/usage-guard:setup uninstall`. This puts your original status line back.
+2. Run `/plugin uninstall usage-guard@<marketplace>`.
+3. Optionally, delete the data folder: `rm -rf ~/.claude/usage-guard`.
+
+If you remove the plugin without step 1, nothing breaks: the relay lives in `~/.claude/usage-guard/bin/`, not in the plugin, so it keeps rendering your original status line. Alerts simply stop. To put your status line back afterwards, reinstall the plugin and run step 1, or copy the saved setting from `~/.claude/usage-guard/inner-statusline.json` into `statusLine` yourself.
 
 ## What Claude is told
 
@@ -102,20 +110,20 @@ When several windows cross a threshold together, the message starts with a "Usag
 To roll usage-guard out to a team:
 
 1. If you use `strictKnownMarketplaces`, add the usage-guard marketplace to the allowlist.
-2. Force-enable `usage-guard@<marketplace>` in managed `enabledPlugins`. Its hooks then run even under `allowManagedHooksOnly`.
+2. Force-enable `usage-guard@<marketplace>` in managed `enabledPlugins`. Its hooks then run even under `allowManagedHooksOnly`. That exemption matches the full `plugin@marketplace` ID, so the same plugin installed from a different marketplace stays blocked.
 3. Set the managed `statusLine` to the snippet that `/usage-guard:setup` prints when managed settings block it:
 
    ```json
-   {"statusLine":{"type":"command","command":"\"$HOME/.claude/plugins/data/<id>/bin/relay.sh\""}}
+   {"statusLine":{"type":"command","command":"\"$HOME/.claude/usage-guard/bin/relay.sh\""}}
    ```
 
-   `<id>` is the plugin's data folder name: look in `~/.claude/plugins/data/` after the plugin has been enabled once. (Setup prints this snippet, with the real path, only when managed settings block an install.) On session start the guard re-copies the relay file if it is missing or the plugin version has changed, so it stays current with plugin updates.
+   The path is the same for every user (it moves only if `CLAUDE_CONFIG_DIR` is set). On session start the guard copies the relay there if it is missing or the plugin version has changed, so it stays current with plugin updates. Once this is in place, `/usage-guard:setup` reports that there is nothing to do and `/usage-guard:status` shows the relay as configured by managed settings.
 
 A managed `statusLine` replaces any personal status line, so users lose theirs. The relay does not wrap it. Managed settings delivered by MDM or the claude.ai console can't be read by setup; if the relay never runs, `/usage-guard:status` says so.
 
 ## Privacy
 
-usage-guard makes no network calls, and nothing leaves your machine. It doesn't read your credentials or call any API. It does keep local files in its data folder, `~/.claude/plugins/data/<id>/`:
+usage-guard makes no network calls, and nothing leaves your machine. It doesn't read your credentials or call any API. It does keep local files in its data folder, `~/.claude/usage-guard/` (or `usage-guard/` inside `CLAUDE_CONFIG_DIR` if you set it). The folder is kept when the plugin is uninstalled; delete it yourself if you no longer need it:
 
 - `state.json`: the latest usage percentages and reset times.
 - `sent/`: small marker files recording what each session and subagent has been told. Markers older than 8 days are deleted.
@@ -132,7 +140,8 @@ If you built your own usage hooks, remove them from `~/.claude/settings.json` an
 
 Run `/usage-guard:status`. It shows whether the relay is configured and when it last ran, each window's usage, tier and reset time, your thresholds, and what the current session has been told.
 
-- **"has never run"**: the relay is not being used. Your status line is overridden by managed settings or a project's `.claude/settings.json`, or `disableAllHooks` is on.
+- **"has never run"**: the relay is not being used. Your status line is overridden by managed settings or a project's `.claude/settings.json` or `.claude/settings.local.json`, or `disableAllHooks` is on.
+- **"old usage-guard relay" from setup**: your `statusLine` points at a relay from an earlier install, for example under `~/.claude/plugins/data/`. Your original status line may be in that folder's `inner-statusline.json` or `backups/`. Put it back in `statusLine` (or remove the key), then run `/usage-guard:setup` again.
 - **"no usage data"**: your plan doesn't provide it (see the table above), or there hasn't been an API response yet.
 - **No alerts, but usage is high**: check that `enabled` is on and that the window's reading hasn't reset.
 
