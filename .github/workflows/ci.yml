@@ -1,18 +1,49 @@
 name: ci
+# Pull requests are tested before they merge. A push to main is only tested
+# when it didn't come from a merged pull request (for example a direct push),
+# so merging doesn't run the same tests again.
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
 permissions:
   contents: read
+  pull-requests: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
+  merged-pr-check:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      from_pr: ${{ steps.check.outputs.from_pr }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          count=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" \
+            --jq "[.[] | select(.merged_at != null and .merge_commit_sha == \"$SHA\")] | length")
+          if [ "$count" -gt 0 ]; then
+            echo "from_pr=true" >>"$GITHUB_OUTPUT"
+            echo "$SHA is a merged pull request, already tested there."
+          else
+            echo "from_pr=false" >>"$GITHUB_OUTPUT"
+          fi
+
   test:
+    needs: merged-pr-check
+    if: ${{ !cancelled() && needs.merged-pr-check.outputs.from_pr != 'true' }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install tools (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y bats jq shellcheck
