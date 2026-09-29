@@ -262,7 +262,7 @@ If any check fails, nothing changes for users. A release older than the current 
 
 Existing users get the new version when they run `claude plugin update`, or automatically if they've turned on auto-update.
 
-The `release` branch is protected by a repository ruleset, so only GitHub Actions can update or delete it. A test in CI fails any pull request that changes where the marketplace installs from.
+The `release` branch is protected by a repository ruleset that only a deploy key can bypass. The key is stored as the `RELEASE_DEPLOY_KEY` secret in the `release` environment, which only runs for `v*.*.*` tags, so in practice only the release workflow can move the branch. A test in CI fails any pull request that changes where the marketplace installs from.
 
 ## License
 

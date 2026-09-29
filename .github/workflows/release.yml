@@ -47,13 +47,16 @@ jobs:
   publish:
     needs: test
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    # The release branch is protected by a ruleset that only deploy keys can
+    # bypass. The key's secret lives in the "release" environment, which only
+    # runs for v*.*.* tags.
+    environment: release
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
       - name: Move the release branch to this release
         env:
           TAG: ${{ github.event.release.tag_name }}
